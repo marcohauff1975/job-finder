@@ -324,7 +324,7 @@ if st.button("Search for jobs"):
                     "Add them to your .env file."
                 )
             else:
-                with st.spinner("Searching for jobs... this can take a minute."):
+                with st.spinner("✨ Magic is happening, please wait..."):
                     postings = find_jobs(role, location, remote, history_dir)
                 _increment_search_quota(user_dir)
                 st.session_state["postings"] = postings
