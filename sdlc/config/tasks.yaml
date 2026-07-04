@@ -16,13 +16,29 @@ code_review_task:
 local_test_task:
   description: >
     The following change was just made: {change_summary}
-    Start the app locally, confirm it boots without errors, and
-    manually exercise the flow this change affects: {flow_to_test}.
-    Report exactly what you did and what you observed.
+    Start the app locally the same way a developer would (its own
+    venv, `streamlit run streamlit_app.py`), and confirm it boots
+    without tracebacks or warnings in the startup log. This app is a
+    websocket-driven single-page app, so a plain HTTP status check
+    only proves the server is up - it does not prove a flow works.
+    Actually drive the UI (via a real browser/automation tool) to
+    exercise the flow this change affects: {flow_to_test}. If the
+    local checkout lives somewhere your tools can't reach directly
+    (for example, a sandboxed/permission-restricted folder), work
+    from a full copy in a location you can reach instead of skipping
+    real verification. Never log in as, reuse, or modify an existing
+    real user's account or data - if the flow requires a logged-in
+    user, register a new throwaway test account for it. Once done,
+    remove any test account/data and temporary copies you created,
+    and confirm the real local user data was left untouched. Report
+    exactly what you did and what you observed at each step.
   expected_output: >
-    A pass/fail verdict, the exact steps taken, and either
-    confirmation the flow works as expected or the exact error/output
-    observed if it didn't.
+    A pass/fail verdict, the exact steps taken (including how you
+    reached/ran the app and what test account/data you created), and
+    either confirmation the flow works as expected or the exact
+    error/output observed if it didn't. Explicit confirmation that
+    any test account/data and temporary copies were cleaned up
+    afterward.
 
 prod_test_task:
   description: >
