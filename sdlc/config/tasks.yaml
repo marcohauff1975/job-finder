@@ -1,0 +1,52 @@
+code_review_task:
+  description: >
+    Review the following code change before it is deployed:
+    {diff}
+    Check specifically for: correctness bugs, security issues
+    (secrets, injection, unsafe file writes), anything that could lose
+    or corrupt existing user data (auth records, uploaded resumes),
+    and deviations from this project's established patterns. Only
+    report issues you can point to a specific line or hunk for - do
+    not speculate about code outside the diff.
+  expected_output: >
+    A pass/fail verdict, followed by a list of concrete findings (if
+    any), each with the file/line and a one-sentence explanation of
+    the risk. Empty findings list if there's nothing to flag.
+
+local_test_task:
+  description: >
+    The following change was just made: {change_summary}
+    Start the app locally, confirm it boots without errors, and
+    manually exercise the flow this change affects: {flow_to_test}.
+    Report exactly what you did and what you observed.
+  expected_output: >
+    A pass/fail verdict, the exact steps taken, and either
+    confirmation the flow works as expected or the exact error/output
+    observed if it didn't.
+
+prod_test_task:
+  description: >
+    A deploy was just made to production ({service_url}) containing:
+    {change_summary}
+    First check whether a real user session appears active (recent
+    server activity); report this before doing anything else. Then
+    confirm the service responds normally and exercise
+    {flow_to_test} against the live app, without creating data that
+    could be mistaken for a real user's. Clean up any test data you
+    create.
+  expected_output: >
+    Whether an active user was detected, a pass/fail verdict for the
+    smoke test, and what was observed.
+
+rollback_task:
+  description: >
+    The production smoke test for commit {new_commit} failed with:
+    {failure_reason}
+    Roll production back to the last known-good commit
+    ({previous_commit}) using the same controlled deploy flow (git
+    pull --ff-only + service restart), then re-run a basic smoke test
+    to confirm the rollback itself succeeded.
+  expected_output: >
+    Confirmation of which commit production is now running, whether
+    the post-rollback smoke test passed, and a summary of what failed
+    originally for a human to investigate.
