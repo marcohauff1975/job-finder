@@ -299,7 +299,7 @@ if st.session_state["view"] == "format":
                     st.rerun()
 
 else:
-    st.markdown("### Review your resume")
+    st.markdown("### Review your resume (Optional)")
     st.write("Get honest, general feedback on your resume - not tied to any specific job.")
 
     review_col, format_col = st.columns(2)
