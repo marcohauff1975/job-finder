@@ -225,7 +225,7 @@ with st.expander(f"Resume on file: {resume_display_name} (click to replace)"):
 st.markdown("### Review your resume")
 st.write("Get honest, general feedback on your resume - not tied to any specific job.")
 if st.button("Review my resume"):
-    with st.spinner("Reviewing your resume..."):
+    with st.spinner("✨ Magic is happening, please wait..."):
         st.session_state["resume_review"] = review_resume(resume_path)
 
 review = st.session_state.get("resume_review")
