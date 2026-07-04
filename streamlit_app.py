@@ -189,7 +189,7 @@ st.markdown(
         flex-direction: column;
         flex: 1;
     }
-    div[data-testid="stHorizontalBlock"] .stButton {
+    div[data-testid="stHorizontalBlock"] > div > div > div:has(.stButton) {
         margin-top: auto;
     }
     </style>
