@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+
+# runtime state - never commit user data, credentials, or the auth database
+.env
+data/
+users/
+history/
+resume/
+
+# legacy per-user config, superseded by data/auth.db - would contain password hashes if it existed
+config/auth_config.yaml*
+auth.py.bak*

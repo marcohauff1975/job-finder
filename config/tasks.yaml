@@ -1,0 +1,93 @@
+job_search_task:
+  description: >
+    Search for currently open job postings for a '{role}' role, and
+    common equivalent titles for that seniority level, located in or
+    near {location}. {remote_note}
+    Try a few different search phrasings to surface listings from job
+    boards and company career pages, favoring postings from the last
+    two weeks. Use the search tool to find real, live postings - do
+    not make any up. If the same posting appears from multiple
+    sources, only include it once. For each posting you find, note
+    the job title, company name, location, a link to the posting, and
+    the salary if one is mentioned in the posting (leave it blank if
+    not mentioned). Report every genuine match you find - do not cap
+    the list at an arbitrary number, and do not pad it with weak or
+    irrelevant results just to reach a target count.
+  expected_output: >
+    A list of all real, currently open job postings that match, each
+    with: job title, company, location, link, and salary (if
+    mentioned).
+
+company_research_task:
+  description: >
+    Research the company '{company}', which has an open '{role}'
+    position, to help prepare a strong job application. Use the
+    search tool to find: what the company does, its approximate size
+    (employees), funding or financial situation if publicly known,
+    its general reputation as an employer, what other roles they
+    currently have open (which may reveal team growth or adjacent
+    opportunities), what technologies, tools, or tech stack they use
+    or mention in job postings/engineering blogs, and any recent news
+    (funding, product launches, leadership changes) from the last
+    several months that could be useful talking points in a cover
+    letter or interview. Only report what you actually find via
+    search - if something isn't available, say so rather than
+    guessing.
+  expected_output: >
+    A structured summary covering: company overview, size, funding,
+    reputation, other open roles, tech stack, and recent news.
+
+resume_tailor_task:
+  description: >
+    The candidate's current resume is given below as {paragraph_count}
+    numbered paragraphs: {resume}
+    Tailor it for the '{role}' role at {company}, using the job
+    posting details: {job_posting} and the company research:
+    {company_research}. Reword each paragraph to lead with the most
+    relevant experience, naturally incorporate relevant keywords from
+    the job posting and tech stack, and adjust the summary/profile
+    section (if present) to speak directly to this role and company.
+    Do not fabricate or exaggerate any experience, skills, employers,
+    or achievements that are not already present in the original.
+    You MUST return exactly {paragraph_count} tailored paragraphs, in
+    the exact same order as given - do not add, remove, merge, or
+    reorder paragraphs. The original document's formatting is
+    rebuilt directly from this same paragraph structure, so changing
+    the count or order will break the layout.
+  expected_output: >
+    A list of exactly {paragraph_count} tailored paragraphs, matching
+    the order of the paragraphs given, followed by a short bullet
+    list explaining the key changes made and why.
+
+resume_review_task:
+  description: >
+    Review the candidate's resume, given below as plain text:
+    {resume_text}
+    Give honest, specific, actionable feedback on how strong this
+    resume is as a general-purpose document (not tailored to any
+    specific job). Cover things like: clarity and impact of bullet
+    points, use of quantified achievements, structure and
+    scannability, and anything that would make a recruiter skim past
+    it. Be direct and specific - point to particular bullets or
+    sections rather than giving generic advice like "add more detail."
+  expected_output: >
+    Three clearly separated lists: strengths (what's already working
+    well), weaknesses (specific, concrete problems), and suggestions
+    (specific, actionable fixes tied to those weaknesses).
+
+resume_format_extract_task:
+  description: >
+    Extract the candidate's resume, given below as plain text:
+    {resume_text}
+    into clean structured data: full name, email, phone, location,
+    LinkedIn URL (if present), professional summary (if present), work
+    experience (each with job title, company, location, date range,
+    and bullet points), education (each with degree, school, and date
+    range), and a flat list of skills. Use the exact wording from the
+    original resume for bullets, titles, and companies - do not
+    paraphrase, summarize, invent, or drop any experience, skill,
+    employer, or achievement. If a field genuinely isn't present in
+    the resume, leave it blank rather than guessing.
+  expected_output: >
+    Structured resume data with all fields above populated as
+    accurately and completely as possible from the original text.

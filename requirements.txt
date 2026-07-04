@@ -1,0 +1,9 @@
+crewai
+crewai-tools
+python-dotenv
+anthropic
+pyyaml
+streamlit
+python-docx
+streamlit-authenticator
+boto3
