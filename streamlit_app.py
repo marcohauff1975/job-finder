@@ -190,6 +190,7 @@ username = auth.username
 user_dir = USERS_DIR / username
 user_dir.mkdir(parents=True, exist_ok=True)
 resume_path = user_dir / "resume.docx"
+resume_name_path = user_dir / "resume_original_name.txt"
 history_dir = user_dir / "history"
 
 if not resume_path.exists():
@@ -198,14 +199,20 @@ if not resume_path.exists():
     uploaded = st.file_uploader("Resume (.docx)", type=["docx"])
     if uploaded is not None:
         resume_path.write_bytes(uploaded.getvalue())
+        resume_name_path.write_text(uploaded.name)
         st.success("Resume uploaded.")
         st.rerun()
     st.stop()
 
-with st.expander(f"Resume on file: {resume_path.name} (click to replace)"):
+resume_display_name = (
+    resume_name_path.read_text().strip() if resume_name_path.exists() else resume_path.name
+)
+
+with st.expander(f"Resume on file: {resume_display_name} (click to replace)"):
     replacement = st.file_uploader("Upload a new resume (.docx)", type=["docx"], key="replace_resume")
     if replacement is not None:
         resume_path.write_bytes(replacement.getvalue())
+        resume_name_path.write_text(replacement.name)
         # The old review/extracted content no longer matches this file,
         # so drop anything cached from the previous resume.
         st.session_state.pop("resume_review", None)
