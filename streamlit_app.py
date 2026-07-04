@@ -296,7 +296,21 @@ for col, (template_key, meta) in zip(format_cols, FORMAT_TEMPLATES.items()):
                 file_name=f"{_slugify(username)}_{template_key}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key=f"fmt_dl_{template_key}",
+                use_container_width=True,
             )
+            if st.button(
+                "Upload",
+                key=f"fmt_use_{template_key}",
+                use_container_width=True,
+            ):
+                resume_path.write_bytes(format_bytes)
+                resume_name_path.write_text(f"{meta['label']}.docx")
+                st.session_state.pop("resume_review", None)
+                st.session_state.pop("resume_content", None)
+                for key in FORMAT_TEMPLATES:
+                    st.session_state.pop(f"fmt_bytes_{key}", None)
+                st.success(f"Saved - {meta['label']} is now your resume on file.")
+                st.rerun()
 
 st.markdown("### Search for jobs")
 role = st.text_input("Role", value="", placeholder="e.g. CTO")
