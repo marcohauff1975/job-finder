@@ -173,6 +173,25 @@ st.markdown(
         color: #c4b5fd !important;
         fill: #a78bfa !important;
     }
+
+    /* Keep the "Prepare download" buttons aligned across the resume
+       format columns, regardless of how many lines each description
+       wraps to. */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: stretch;
+    }
+    div[data-testid="stHorizontalBlock"] > div {
+        display: flex;
+        flex-direction: column;
+    }
+    div[data-testid="stHorizontalBlock"] > div > div {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton {
+        margin-top: auto;
+    }
     </style>
 
     <div class="hero-badge">✨ Powered by AI agents</div>
