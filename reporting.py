@@ -53,6 +53,26 @@ def get_report() -> dict:
         format_count = conn.execute(
             "SELECT COUNT(*) FROM cv_generation_events WHERE kind = 'format'"
         ).fetchone()[0]
+
+        usernames = [
+            row[0] for row in conn.execute("SELECT username FROM users ORDER BY username")
+        ]
+        per_user = []
+        for username in usernames:
+            user_tailored = conn.execute(
+                "SELECT COUNT(*) FROM cv_generation_events WHERE username = ? AND kind = 'tailored'",
+                (username,),
+            ).fetchone()[0]
+            user_format = conn.execute(
+                "SELECT COUNT(*) FROM cv_generation_events WHERE username = ? AND kind = 'format'",
+                (username,),
+            ).fetchone()[0]
+            per_user.append({
+                "email": username,
+                "tailored": user_tailored,
+                "format": user_format,
+                "total": user_tailored + user_format,
+            })
     finally:
         conn.close()
 
@@ -61,4 +81,5 @@ def get_report() -> dict:
         "cvs_tailored": tailored_count,
         "cvs_format": format_count,
         "cvs_total": tailored_count + format_count,
+        "per_user": per_user,
     }

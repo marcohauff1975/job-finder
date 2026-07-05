@@ -127,6 +127,21 @@ if st.query_params.get("admin") is not None:
             f"{report['cvs_tailored']} tailored for a specific job, "
             f"{report['cvs_format']} format rebuilds."
         )
+
+        st.markdown("#### Per user")
+        st.dataframe(
+            [
+                {
+                    "Email": row["email"],
+                    "Tailored for a job": row["tailored"],
+                    "Format rebuilds": row["format"],
+                    "Total": row["total"],
+                }
+                for row in report["per_user"]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
     st.stop()
 
 st.markdown(
