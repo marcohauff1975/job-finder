@@ -30,6 +30,9 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from auth import AuthManager
+from reporting import get_report, record_cv_generated
+
+ADMIN_PASSWORD = "REDACTED-ROTATED"
 from job_search import (
     FORMAT_TEMPLATES,
     build_tailored_docx_bytes,
@@ -106,6 +109,25 @@ st.set_page_config(
     page_icon="✨",
     layout="centered",
 )
+
+if st.query_params.get("admin") is not None:
+    if not st.session_state.get("admin_authed"):
+        password = st.text_input("Password", type="password", key="admin_password")
+        if st.button("Enter"):
+            if password == ADMIN_PASSWORD:
+                st.session_state["admin_authed"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+    else:
+        report = get_report()
+        st.metric("Registered users", report["registered_users"])
+        st.metric("CVs generated", report["cvs_total"])
+        st.caption(
+            f"{report['cvs_tailored']} tailored for a specific job, "
+            f"{report['cvs_format']} format rebuilds."
+        )
+    st.stop()
 
 st.markdown(
     """
@@ -270,6 +292,7 @@ if st.session_state["view"] == "format":
                         st.session_state[f"fmt_bytes_{template_key}"] = render_resume_in_format(
                             content, template_key
                         )
+                        record_cv_generated(username, "format")
                     else:
                         st.error("Couldn't extract your resume's content. Try again.")
 
@@ -408,6 +431,7 @@ else:
                         docx_bytes = build_tailored_docx_bytes(
                             resume_path, tailored.tailored_paragraphs
                         )
+                        record_cv_generated(username, "tailored")
                     except Exception as e:
                         error = f"Building the tailored resume failed: {e}"
 
