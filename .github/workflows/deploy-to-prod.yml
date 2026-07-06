@@ -1,0 +1,121 @@
+name: Deploy to production
+
+# Manual only - click "Run workflow" in the Actions tab. Deliberately not
+# triggered on push, so a human always decides when production changes,
+# matching this project's established manual-deploy convention.
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-north-1
+  LIGHTSAIL_INSTANCE: job-finder
+  REMOTE_APP_DIR: /home/ubuntu/crewai-starter
+  REMOTE_USER: ubuntu
+  SERVICE_NAME: jobfinder.service
+  PROD_URL: https://yourmagicaljobfinder.online
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout (full history, so we can diff against the previous commit)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch a short-lived SSH cert for the Lightsail instance
+        run: |
+          set -euo pipefail
+          aws lightsail get-instance-access-details \
+            --instance-name "$LIGHTSAIL_INSTANCE" \
+            --region "$AWS_REGION" \
+            --protocol ssh \
+            --output json > /tmp/access.json
+          INSTANCE_IP=$(python3 -c "import json; print(json.load(open('/tmp/access.json'))['accessDetails']['ipAddress'])")
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/access.json'))['accessDetails']
+          open('/tmp/deploy_key', 'w').write(d['privateKey'])
+          open('/tmp/deploy_key-cert.pub', 'w').write(d['certKey'])
+          "
+          chmod 600 /tmp/deploy_key
+          rm /tmp/access.json
+          echo "INSTANCE_IP=$INSTANCE_IP" >> "$GITHUB_ENV"
+
+      - name: Note any currently active sessions (informational only)
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "sudo ss -tnp state established '( sport = :8501 or dport = :8501 )' || true"
+
+      - name: Capture the commit currently running in production
+        id: pre_deploy
+        run: |
+          PREV_COMMIT=$(ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && git rev-parse HEAD")
+          echo "previous_commit=$PREV_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Production is currently on: $PREV_COMMIT"
+
+      - name: Pull latest main on the server
+        run: |
+          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && git pull --ff-only origin main"
+
+      - name: Decide whether a restart is actually needed
+        id: diff
+        run: |
+          NEW_COMMIT=$(git rev-parse HEAD)
+          echo "new_commit=$NEW_COMMIT" >> "$GITHUB_OUTPUT"
+          CHANGED=$(git diff --name-only "${{ steps.pre_deploy.outputs.previous_commit }}" "$NEW_COMMIT")
+          echo "Changed files:"
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE '\.py$|^requirements\.txt$'; then
+            echo "needs_restart=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_restart=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restart jobfinder.service
+        if: steps.diff.outputs.needs_restart == 'true'
+        run: |
+          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" "sudo systemctl restart $SERVICE_NAME"
+          sleep 5
+
+      - name: Verify production health
+        id: verify
+        run: |
+          set +e
+          LOCAL_CODE=$(ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "curl -s -o /dev/null -w '%{http_code}' http://localhost:8501")
+          DOMAIN_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$PROD_URL")
+          echo "local_code=$LOCAL_CODE domain_code=$DOMAIN_CODE"
+          if [ "$LOCAL_CODE" = "200" ] && [ "$DOMAIN_CODE" = "200" ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rollback to previous commit if unhealthy
+        if: steps.verify.outputs.healthy == 'false'
+        run: |
+          echo "::warning::Health check failed, rolling back to ${{ steps.pre_deploy.outputs.previous_commit }}"
+          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && git reset --hard ${{ steps.pre_deploy.outputs.previous_commit }} && sudo systemctl restart $SERVICE_NAME"
+          sleep 5
+          ROLLBACK_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$PROD_URL")
+          echo "Post-rollback domain status: $ROLLBACK_CODE"
+          if [ "$ROLLBACK_CODE" != "200" ]; then
+            echo "::error::Rollback did not restore health either - needs manual investigation"
+          fi
+          exit 1
+
+      - name: Clean up key material
+        if: always()
+        run: rm -f /tmp/deploy_key /tmp/deploy_key-cert.pub
