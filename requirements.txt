@@ -8,3 +8,4 @@ python-docx
 streamlit-authenticator
 boto3
 pypdf
+playwright

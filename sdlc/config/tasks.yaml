@@ -54,6 +54,59 @@ prod_test_task:
     Whether an active user was detected, a pass/fail verdict for the
     smoke test, and what was observed.
 
+ux_review_task:
+  description: >
+    The following change was just confirmed to work functionally:
+    {change_summary}
+    This app's written UX guidelines are:
+    {ux_guidelines}
+    Use the inspect_job_finder_page tool to actually look at both of
+    this app's front-end views - call it once with view='main' and
+    once with view='format' - focusing on {flow_to_test}. Do not call
+    it against the admin page; that's not part of the user-facing UX.
+    The tool logs in with its own throwaway test account and cleans up
+    after itself, so you don't need to manage test data yourself.
+    Check what the tool actually returned (visible text, screenshot
+    path, computed styles/contrast ratios) against the guidelines
+    above, point by point - do not report anything that isn't tied to
+    a specific guideline section, and do not report anything the tool
+    didn't actually surface. If you notice the guidelines document
+    itself looks stale or wrong compared to what the tool observed,
+    say so as a separate note rather than silently following or
+    silently ignoring it.
+  expected_output: >
+    A pass/fail verdict on adherence to the UX guidelines (separate
+    from functional pass/fail), covering both the main and format
+    views, with a list of concrete findings (if any) each citing the
+    specific guideline section violated, which view/step it was
+    observed on, and why it matters, plus any note that the guidelines
+    themselves seem out of date.
+
+performance_test_task:
+  description: >
+    The following change was just made: {change_summary}
+    Time how long {flow_to_test} actually takes to complete, end to
+    end, by driving it in a real browser the same way local_tester
+    does - register/use a throwaway test account if the flow needs a
+    logged-in user, never a real user's account or data. Compare the
+    measured time against the expected baseline: {baseline_seconds}
+    seconds. If it's noticeably slower than that baseline, investigate
+    before reporting: check the app's own logs (or ask for them) for
+    how many LLM calls and tool calls happened during the run. In this
+    app, a slow flow is usually caused by an agent making far more
+    tool calls than it needs (extra searches to verify details it
+    already has), not by the API or model itself being inherently
+    slow - a single plain LLM call typically still takes on the order
+    of a minute, so judge "slow" relative to the baseline and call
+    count, not against an assumption that every step should be
+    near-instant. Clean up any test account/data you create.
+  expected_output: >
+    The measured time in seconds, a pass/fail verdict against the
+    baseline, and - if it failed - a short diagnosis pointing at the
+    likely cause (e.g. "14 tool calls across 6 rounds" or "single LLM
+    call took 70s") rather than just "it's slow." Confirmation any
+    test account/data was cleaned up.
+
 rollback_task:
   description: >
     The production smoke test for commit {new_commit} failed with:

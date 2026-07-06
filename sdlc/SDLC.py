@@ -1,5 +1,6 @@
 """
-SDLC - Code Reviewer + Local Tester + Prod Tester + Rollback agents.
+SDLC - Code Reviewer + Local Tester + UX Reviewer + Prod Tester +
+Rollback agents.
 
 Separate from the product agents in job_search.py: these agents help
 review, test, and (if needed) roll back changes to this app itself -
@@ -13,11 +14,13 @@ This file just loads those definitions, wires them together, and
 exposes one function per stage.
 
 Not yet wired up (deliberately left for a later pass):
-- No tools are attached to any agent yet, so right now these agents
-  can only reason over whatever text you pass them (a diff, a log,
-  a description of what to test) - they can't run git, pytest, ssh,
-  or curl themselves. Giving them that ability (and deciding which
-  agent gets which tool) is the next step.
+- No tools are attached to code_reviewer, local_tester, prod_tester,
+  or rollback_agent yet, so those four can only reason over whatever
+  text you pass them (a diff, a log, a description of what to test) -
+  they can't run git, pytest, ssh, or curl themselves. ux_reviewer is
+  the exception: it has tools/ux_inspector.py, a Playwright-backed tool
+  that actually drives the running app. Giving the other four
+  agents that same kind of real access is the next step.
 - No orchestration between stages (e.g. only calling rollback() if
   test_production() fails) - that control flow will live wherever
   this is eventually driven from (a script, or another agent).
@@ -28,12 +31,21 @@ constants below):
 """
 
 import os
+import sys
 from pathlib import Path
 
 import yaml
 from crewai import Agent, Task, Crew, Process, LLM
 from dotenv import load_dotenv
 from pydantic import BaseModel
+
+# Makes `sdlc.tools...` importable whether this file is run directly
+# (python SDLC.py, per the docstring above) or imported as sdlc.SDLC.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from sdlc.tools.ux_inspector import UXPageInspectorTool
 
 load_dotenv()
 
@@ -57,6 +69,24 @@ class LocalTestResult(BaseModel):
     passed: bool
     steps_taken: str
     observation: str
+
+
+class PerformanceTestResult(BaseModel):
+    seconds: float
+    passed: bool
+    diagnosis: str = ""
+
+
+class UXReviewFinding(BaseModel):
+    guideline: str
+    location: str
+    issue: str
+
+
+class UXReviewResult(BaseModel):
+    passed: bool
+    findings: list[UXReviewFinding] = []
+    guidelines_stale_note: str = ""
 
 
 class ProdTestResult(BaseModel):
@@ -89,6 +119,9 @@ with open(CONFIG_DIR / "agents.yaml", "r") as f:
 
 with open(CONFIG_DIR / "tasks.yaml", "r") as f:
     tasks_config = yaml.safe_load(f)
+
+with open(CONFIG_DIR / "ux_guidelines.md", "r") as f:
+    UX_GUIDELINES = f.read()
 
 # --- LLM (same Claude setup as job_search.py) --------------------------
 
@@ -132,6 +165,41 @@ local_test_task = Task(
 local_test_crew = Crew(
     agents=[local_tester],
     tasks=[local_test_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+performance_test_task = Task(
+    config=tasks_config["performance_test_task"],
+    agent=local_tester,
+    output_pydantic=PerformanceTestResult,
+)
+
+performance_test_crew = Crew(
+    agents=[local_tester],
+    tasks=[performance_test_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+# --- UX Reviewer: agent + task + crew -----------------------------------
+
+ux_reviewer = Agent(
+    config=agents_config["ux_reviewer"],
+    llm=claude,
+    tools=[UXPageInspectorTool()],
+    verbose=True,
+)
+
+ux_review_task = Task(
+    config=tasks_config["ux_review_task"],
+    agent=ux_reviewer,
+    output_pydantic=UXReviewResult,
+)
+
+ux_review_crew = Crew(
+    agents=[ux_reviewer],
+    tasks=[ux_review_task],
     process=Process.sequential,
     verbose=True,
 )
@@ -191,6 +259,33 @@ def test_locally(change_summary: str, flow_to_test: str) -> LocalTestResult | No
     None if it failed."""
     inputs = {"change_summary": change_summary, "flow_to_test": flow_to_test}
     result = local_test_crew.kickoff(inputs=inputs)
+    return result.pydantic if result.pydantic else None
+
+
+def test_performance(
+    change_summary: str, flow_to_test: str, baseline_seconds: float
+) -> PerformanceTestResult | None:
+    """Run the performance test crew (same local_tester agent as
+    test_locally) and return the structured result, or None if it
+    failed."""
+    inputs = {
+        "change_summary": change_summary,
+        "flow_to_test": flow_to_test,
+        "baseline_seconds": str(baseline_seconds),
+    }
+    result = performance_test_crew.kickoff(inputs=inputs)
+    return result.pydantic if result.pydantic else None
+
+
+def review_ux(change_summary: str, flow_to_test: str) -> UXReviewResult | None:
+    """Run the UX review crew (against this app's own ux_guidelines.md)
+    and return the structured result, or None if it failed."""
+    inputs = {
+        "change_summary": change_summary,
+        "flow_to_test": flow_to_test,
+        "ux_guidelines": UX_GUIDELINES,
+    }
+    result = ux_review_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None
 
 
