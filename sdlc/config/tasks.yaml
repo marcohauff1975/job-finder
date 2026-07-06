@@ -44,15 +44,22 @@ prod_test_task:
   description: >
     A deploy was just made to production ({service_url}) containing:
     {change_summary}
-    First check whether a real user session appears active (recent
-    server activity); report this before doing anything else. Then
-    confirm the service responds normally and exercise
-    {flow_to_test} against the live app, without creating data that
-    could be mistaken for a real user's. Clean up any test data you
-    create.
+    The production instance is reachable at {instance_ip} (SSH user
+    {remote_user}, key already at {key_path}), and the app listens on
+    port {app_port} on the server. Use the check_production_health
+    tool - passing exactly these values - to actually check whether a
+    real user session looks active right now, whether the app
+    responds locally on the server, and whether the public domain
+    responds. Do not guess at any of this from the description; call
+    the tool and base your verdict only on what it returns. Report the
+    active-user finding before anything else. Then decide pass/fail
+    from the tool's result and, if relevant, exercise {flow_to_test}
+    against the live app without creating data that could be mistaken
+    for a real user's - clean up any test data you create.
   expected_output: >
     Whether an active user was detected, a pass/fail verdict for the
-    smoke test, and what was observed.
+    smoke test grounded in the tool's actual output, and what was
+    observed.
 
 ux_review_task:
   description: >
@@ -114,11 +121,18 @@ rollback_task:
   description: >
     The production smoke test for commit {new_commit} failed with:
     {failure_reason}
-    Roll production back to the last known-good commit
-    ({previous_commit}) using the same controlled deploy flow (git
-    pull --ff-only + service restart), then re-run a basic smoke test
-    to confirm the rollback itself succeeded.
+    The production instance is reachable at {instance_ip} (SSH user
+    {remote_user}, key already at {key_path}), the app directory is
+    {remote_app_dir}, the systemd service is {service_name}, and the
+    public URL is {service_url}. Use the rollback_production tool -
+    passing exactly these values plus previous_commit={previous_commit}
+    - to actually revert production to that commit and restart the
+    service. Only do this because a test failure was already confirmed
+    above - never speculatively. After the tool runs, use its own
+    reported post-rollback HTTP status to confirm whether the rollback
+    itself succeeded; do not assume it worked.
   expected_output: >
-    Confirmation of which commit production is now running, whether
-    the post-rollback smoke test passed, and a summary of what failed
-    originally for a human to investigate.
+    Confirmation of which commit production is now running (from the
+    tool's own output, not assumed), whether the post-rollback health
+    check passed, and a summary of what failed originally for a human
+    to investigate.

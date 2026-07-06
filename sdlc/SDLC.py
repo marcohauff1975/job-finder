@@ -14,13 +14,11 @@ This file just loads those definitions, wires them together, and
 exposes one function per stage.
 
 Not yet wired up (deliberately left for a later pass):
-- No tools are attached to code_reviewer, local_tester, prod_tester,
-  or rollback_agent yet, so those four can only reason over whatever
-  text you pass them (a diff, a log, a description of what to test) -
-  they can't run git, pytest, ssh, or curl themselves. ux_reviewer is
-  the exception: it has tools/ux_inspector.py, a Playwright-backed tool
-  that actually drives the running app. Giving the other four
-  agents that same kind of real access is the next step.
+- No tools are attached to code_reviewer or local_tester yet, so
+  those two can only reason over whatever text you pass them (a diff,
+  a description of what to test) - they can't run git or pytest
+  themselves. ux_reviewer (tools/ux_inspector.py), prod_tester, and
+  rollback_agent (both tools/prod_ops.py) already have real tools.
 - No orchestration between stages (e.g. only calling rollback() if
   test_production() fails) - that control flow will live wherever
   this is eventually driven from (a script, or another agent).
@@ -46,6 +44,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from sdlc.tools.ux_inspector import UXPageInspectorTool
+from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
 
 load_dotenv()
 
@@ -209,6 +208,7 @@ ux_review_crew = Crew(
 prod_tester = Agent(
     config=agents_config["prod_tester"],
     llm=claude,
+    tools=[ProdHealthCheckTool()],
     verbose=True,
 )
 
@@ -230,6 +230,7 @@ prod_test_crew = Crew(
 rollback_agent = Agent(
     config=agents_config["rollback_agent"],
     llm=claude,
+    tools=[ProdRollbackTool()],
     verbose=True,
 )
 
@@ -293,29 +294,59 @@ def review_ux(
 
 
 def test_production(
-    service_url: str, change_summary: str, flow_to_test: str
+    service_url: str,
+    change_summary: str,
+    flow_to_test: str,
+    instance_ip: str,
+    key_path: str,
+    remote_user: str,
+    app_port: int = 8501,
 ) -> ProdTestResult | None:
     """Run the production smoke test crew and return the structured
-    result, or None if it failed."""
+    result, or None if it failed. prod_tester has a real tool
+    (check_production_health) and is given the SSH connection details
+    it needs to call it - this function doesn't check anything itself,
+    the agent does."""
     inputs = {
         "service_url": service_url,
         "change_summary": change_summary,
         "flow_to_test": flow_to_test,
+        "instance_ip": instance_ip,
+        "key_path": key_path,
+        "remote_user": remote_user,
+        "app_port": str(app_port),
     }
     result = prod_test_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None
 
 
 def rollback(
-    new_commit: str, failure_reason: str, previous_commit: str
+    new_commit: str,
+    failure_reason: str,
+    previous_commit: str,
+    instance_ip: str,
+    key_path: str,
+    remote_user: str,
+    remote_app_dir: str,
+    service_name: str,
+    service_url: str,
 ) -> RollbackResult | None:
     """Run the rollback crew and return the structured result, or None
     if it failed. Only meant to be called after a confirmed
-    test_production() failure."""
+    test_production() failure. rollback_agent has a real tool
+    (rollback_production) and is given the SSH connection details it
+    needs to call it - this function doesn't revert anything itself,
+    the agent does."""
     inputs = {
         "new_commit": new_commit,
         "failure_reason": failure_reason,
         "previous_commit": previous_commit,
+        "instance_ip": instance_ip,
+        "key_path": key_path,
+        "remote_user": remote_user,
+        "remote_app_dir": remote_app_dir,
+        "service_name": service_name,
+        "service_url": service_url,
     }
     result = rollback_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None

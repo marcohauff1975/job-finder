@@ -1,0 +1,118 @@
+name: AI prod flow
+
+# Manual only, same as deploy-to-prod.yml - click "Run workflow" in the
+# Actions tab. This is the AI-agent version: the deploy steps (pull,
+# conditional restart) are identical bash/SSH, but the verify-and-
+# rollback decision is made by prod_tester/rollback_agent using their
+# own real tools (sdlc/tools/prod_ops.py) instead of a plain curl check.
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-north-1
+  LIGHTSAIL_INSTANCE: job-finder
+  REMOTE_APP_DIR: /home/ubuntu/crewai-starter
+  REMOTE_USER: ubuntu
+  SERVICE_NAME: jobfinder.service
+  PROD_URL: https://yourmagicaljobfinder.online
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout (full history, so we can diff against the previous commit)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies (for the CrewAI agents)
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch a short-lived SSH cert for the Lightsail instance
+        run: |
+          set -euo pipefail
+          aws lightsail get-instance-access-details \
+            --instance-name "$LIGHTSAIL_INSTANCE" \
+            --region "$AWS_REGION" \
+            --protocol ssh \
+            --output json > /tmp/access.json
+          INSTANCE_IP=$(python3 -c "import json; print(json.load(open('/tmp/access.json'))['accessDetails']['ipAddress'])")
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/access.json'))['accessDetails']
+          open('/tmp/deploy_key', 'w').write(d['privateKey'])
+          open('/tmp/deploy_key-cert.pub', 'w').write(d['certKey'])
+          "
+          chmod 600 /tmp/deploy_key
+          rm /tmp/access.json
+          echo "INSTANCE_IP=$INSTANCE_IP" >> "$GITHUB_ENV"
+
+      - name: Capture the commit currently running in production
+        id: pre_deploy
+        run: |
+          PREV_COMMIT=$(ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && git rev-parse HEAD")
+          echo "previous_commit=$PREV_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Production is currently on: $PREV_COMMIT"
+
+      - name: Pull latest main on the server
+        run: |
+          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && git pull --ff-only origin main"
+
+      - name: Decide whether a restart is actually needed
+        id: diff
+        run: |
+          NEW_COMMIT=$(git rev-parse HEAD)
+          echo "new_commit=$NEW_COMMIT" >> "$GITHUB_OUTPUT"
+          CHANGED=$(git diff --name-only "${{ steps.pre_deploy.outputs.previous_commit }}" "$NEW_COMMIT")
+          echo "Changed files:"
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE '\.py$|^requirements\.txt$'; then
+            echo "needs_restart=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_restart=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "change_summary<<EOF"
+            git log --oneline "${{ steps.pre_deploy.outputs.previous_commit }}..$NEW_COMMIT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restart jobfinder.service
+        if: steps.diff.outputs.needs_restart == 'true'
+        run: |
+          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" "sudo systemctl restart $SERVICE_NAME"
+          sleep 5
+
+      - name: Run prod_tester (and rollback_agent if needed)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+          SSH_KEY_PATH: /tmp/deploy_key
+          REMOTE_USER: ${{ env.REMOTE_USER }}
+          REMOTE_APP_DIR: ${{ env.REMOTE_APP_DIR }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          SERVICE_URL: ${{ env.PROD_URL }}
+          PREVIOUS_COMMIT: ${{ steps.pre_deploy.outputs.previous_commit }}
+          NEW_COMMIT: ${{ steps.diff.outputs.new_commit }}
+          CHANGE_SUMMARY: ${{ steps.diff.outputs.change_summary }}
+          FLOW_TO_TEST: "The homepage loads and login/registration renders."
+        run: python sdlc/ai_prod_flow_runner.py
+
+      - name: Clean up key material
+        if: always()
+        run: rm -f /tmp/deploy_key /tmp/deploy_key-cert.pub
