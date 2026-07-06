@@ -39,6 +39,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from pydantic import BaseModel
+from pypdf import PdfReader
 
 load_dotenv()
 
@@ -293,6 +294,39 @@ def _posting_key(job: JobPosting) -> str:
 # reliably if the tailored content lines up 1:1 with the original
 # paragraphs (same order, same count), which is why the task instructs
 # the agent not to add, remove, or reorder paragraphs - only reword them.
+
+def _pdf_to_docx_bytes(pdf_bytes: bytes) -> bytes:
+    """Converts a PDF's text into a plain .docx (one paragraph per
+    non-blank line). This is deliberately simple rather than
+    layout-preserving: everything downstream (tailoring, format
+    rendering, extraction) only ever reads a resume as a list of
+    paragraphs, so a clean paragraph-per-line .docx is exactly what
+    those steps need, regardless of the PDF's original visual
+    layout."""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+    doc = DocxDocument()
+    for line in text.splitlines():
+        if line.strip():
+            doc.add_paragraph(line.strip())
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def save_resume_upload(filename: str, file_bytes: bytes, resume_path: Path) -> None:
+    """Saves an uploaded resume as resume.docx, converting it first if
+    it isn't already a .docx (currently: .pdf). Every other function in
+    this file assumes resume_path is a real .docx it can open with
+    python-docx, so conversion has to happen exactly once, here, at
+    upload time."""
+    if filename.lower().endswith(".pdf"):
+        resume_path.write_bytes(_pdf_to_docx_bytes(file_bytes))
+    else:
+        resume_path.write_bytes(file_bytes)
+
 
 def _load_resume_doc(resume_path: Path) -> DocxDocument:
     if not resume_path.exists():

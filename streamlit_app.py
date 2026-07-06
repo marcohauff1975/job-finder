@@ -41,6 +41,7 @@ from job_search import (
     render_resume_in_format,
     research_company,
     review_resume,
+    save_resume_upload,
     tailor_resume_for_job,
 )
 
@@ -251,10 +252,10 @@ history_dir = user_dir / "history"
 
 if not resume_path.exists():
     st.subheader("Upload your resume")
-    st.write("Upload a .docx resume - this is what will be tailored for each job you search.")
-    uploaded = st.file_uploader("Resume (.docx)", type=["docx"])
+    st.write("Upload a .docx or .pdf resume - this is what will be tailored for each job you search.")
+    uploaded = st.file_uploader("Resume (.docx or .pdf)", type=["docx", "pdf"])
     if uploaded is not None:
-        resume_path.write_bytes(uploaded.getvalue())
+        save_resume_upload(uploaded.name, uploaded.getvalue(), resume_path)
         resume_name_path.write_text(uploaded.name)
         st.success("Resume uploaded.")
         st.rerun()
@@ -265,9 +266,11 @@ resume_display_name = (
 )
 
 with st.expander(f"Resume on file: {resume_display_name} (click to replace)"):
-    replacement = st.file_uploader("Upload a new resume (.docx)", type=["docx"], key="replace_resume")
+    replacement = st.file_uploader(
+        "Upload a new resume (.docx or .pdf)", type=["docx", "pdf"], key="replace_resume"
+    )
     if replacement is not None:
-        resume_path.write_bytes(replacement.getvalue())
+        save_resume_upload(replacement.name, replacement.getvalue(), resume_path)
         resume_name_path.write_text(replacement.name)
         # The old review/extracted content no longer matches this file,
         # so drop anything cached from the previous resume.
