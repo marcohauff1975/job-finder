@@ -41,6 +41,8 @@ from docx.shared import Inches, Pt, RGBColor
 from pydantic import BaseModel
 from pypdf import PdfReader
 
+from reporting import record_token_usage
+
 load_dotenv()
 
 
@@ -417,6 +419,20 @@ def _format_company_research(research: CompanyResearch) -> str:
 # The terminal script below and the Streamlit UI (streamlit_app.py) call
 # these same functions.
 
+def _record_crew_tokens(result) -> None:
+    """Persists a crew run's Anthropic token usage so the admin page can
+    show estimated spend across restarts - called after every kickoff()
+    below, successful or not, since token usage happens either way."""
+    usage = result.token_usage
+    if usage:
+        record_token_usage(
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.cached_prompt_tokens,
+            usage.cache_creation_tokens,
+        )
+
+
 def find_jobs(
     role: str, location: str, remote: bool, history_dir: Path
 ) -> list[dict]:
@@ -434,6 +450,7 @@ def find_jobs(
         "remote_note": remote_note,
     }
     result = job_search_crew.kickoff(inputs=inputs)
+    _record_crew_tokens(result)
     postings = result.pydantic.postings if result.pydantic else []
 
     history_path = _history_file(history_dir, role, location)
@@ -467,6 +484,7 @@ def research_company(company: str, role: str) -> CompanyResearch | None:
     structured result (or None if the agent didn't return valid data)."""
     inputs = {"company": company, "role": role}
     result = research_crew.kickoff(inputs=inputs)
+    _record_crew_tokens(result)
     return result.pydantic if result.pydantic else None
 
 
@@ -490,6 +508,7 @@ def tailor_resume_for_job(
         "company_research": _format_company_research(company_research),
     }
     result = resume_crew.kickoff(inputs=inputs)
+    _record_crew_tokens(result)
     return result.pydantic if result.pydantic else None
 
 
@@ -500,6 +519,7 @@ def review_resume(resume_path: Path) -> ResumeReview | None:
     paragraphs = read_resume_paragraphs(resume_path)
     inputs = {"resume_text": "\n".join(paragraphs)}
     result = review_crew.kickoff(inputs=inputs)
+    _record_crew_tokens(result)
     return result.pydantic if result.pydantic else None
 
 
@@ -511,6 +531,7 @@ def extract_resume_content(resume_path: Path) -> ResumeContent | None:
     paragraphs = read_resume_paragraphs(resume_path)
     inputs = {"resume_text": "\n".join(paragraphs)}
     result = format_extract_crew.kickoff(inputs=inputs)
+    _record_crew_tokens(result)
     return result.pydantic if result.pydantic else None
 
 

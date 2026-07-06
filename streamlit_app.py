@@ -30,7 +30,12 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from auth import AuthManager
-from reporting import get_report, get_serper_balance, record_cv_generated
+from reporting import (
+    get_estimated_anthropic_cost,
+    get_report,
+    get_serper_balance,
+    record_cv_generated,
+)
 
 ADMIN_PASSWORD = "REDACTED-ROTATED"
 from job_search import (
@@ -51,13 +56,14 @@ load_dotenv()
 
 USERS_DIR = Path(__file__).parent / "users"
 DAILY_SEARCH_LIMIT = 5
+DAILY_RESEARCH_LIMIT = 1
+UNLIMITED_USER = "marco.hauff@gmail.com"
 
 
-def _check_search_quota(user_dir: Path) -> tuple[bool, int]:
-    """Returns (allowed, searches_used_today) without incrementing anything.
-    Usage is tracked per-user in usage.json and resets automatically when
-    the date changes, so no separate cleanup job is needed."""
-    usage_path = user_dir / "usage.json"
+def _check_daily_quota(usage_path: Path, limit: int) -> tuple[bool, int]:
+    """Returns (allowed, uses_today) without incrementing anything. Usage
+    is tracked in the given per-user JSON file and resets automatically
+    when the date changes, so no separate cleanup job is needed."""
     today = date.today().isoformat()
     usage = {}
     if usage_path.exists():
@@ -67,13 +73,12 @@ def _check_search_quota(user_dir: Path) -> tuple[bool, int]:
             usage = {}
     if usage.get("date") != today:
         return True, 0
-    return usage.get("count", 0) < DAILY_SEARCH_LIMIT, usage.get("count", 0)
+    return usage.get("count", 0) < limit, usage.get("count", 0)
 
 
-def _increment_search_quota(user_dir: Path) -> None:
-    """Records one more search against today's count, resetting the
-    counter first if the stored usage is from a previous day."""
-    usage_path = user_dir / "usage.json"
+def _increment_daily_quota(usage_path: Path) -> None:
+    """Records one more use against today's count, resetting the counter
+    first if the stored usage is from a previous day."""
     today = date.today().isoformat()
     usage = {"date": today, "count": 0}
     if usage_path.exists():
@@ -85,6 +90,25 @@ def _increment_search_quota(user_dir: Path) -> None:
             pass
     usage["count"] = usage.get("count", 0) + 1
     usage_path.write_text(json.dumps(usage))
+
+
+def _load_last_search(user_dir: Path) -> dict:
+    """Returns the role/location/remote this user searched with last
+    time, so a returning user doesn't have to retype them. Empty
+    strings/defaults if they've never searched."""
+    last_search_path = user_dir / "last_search.json"
+    if last_search_path.exists():
+        try:
+            return json.loads(last_search_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"role": "", "location": "", "remote": True}
+
+
+def _save_last_search(user_dir: Path, role: str, location: str, remote: bool) -> None:
+    (user_dir / "last_search.json").write_text(
+        json.dumps({"role": role, "location": location, "remote": remote})
+    )
 
 
 def _slugify(text: str) -> str:
@@ -133,6 +157,12 @@ if st.query_params.get("admin") is not None:
         st.metric(
             "Serper credits remaining",
             serper_balance if serper_balance is not None else "unavailable",
+        )
+
+        st.metric("Anthropic spend (estimated)", f"${get_estimated_anthropic_cost():.2f}")
+        st.caption(
+            "Estimated from actual token usage × published Sonnet pricing - "
+            "Anthropic doesn't expose a real balance to a regular API key."
         )
 
         st.markdown("#### Per user")
@@ -376,15 +406,18 @@ else:
                     st.markdown(f"- {item}")
 
     st.markdown("### Search for jobs")
-    role = st.text_input("Role", value="", placeholder="e.g. CTO")
-    location = st.text_input("Location", value="", placeholder="e.g. Amsterdam, Netherlands")
-    remote = st.checkbox("Open to fully remote roles", value=True)
+    last_search = _load_last_search(user_dir)
+    role = st.text_input("Role", value=last_search["role"], placeholder="e.g. CTO")
+    location = st.text_input(
+        "Location", value=last_search["location"], placeholder="e.g. Amsterdam, Netherlands"
+    )
+    remote = st.checkbox("Open to fully remote roles", value=last_search["remote"])
 
     if st.button("Search for jobs"):
         if not role.strip() or not location.strip():
             st.error("Please fill in both Role and Location before searching.")
         else:
-            allowed, _ = _check_search_quota(user_dir)
+            allowed, _ = _check_daily_quota(user_dir / "usage.json", DAILY_SEARCH_LIMIT)
             if not allowed:
                 st.error(
                     f"Free tier is limited to {DAILY_SEARCH_LIMIT} searches a day. "
@@ -403,7 +436,8 @@ else:
                 else:
                     with st.spinner("✨ Magic is happening, please wait..."):
                         postings = find_jobs(role, location, remote, history_dir)
-                    _increment_search_quota(user_dir)
+                    _increment_daily_quota(user_dir / "usage.json")
+                    _save_last_search(user_dir, role, location, remote)
                     st.session_state["postings"] = postings
                     st.session_state["role"] = role
 
@@ -426,45 +460,59 @@ else:
             )
 
             if st.button("Do Market Research and Update Resume", key=f"research_btn_{i}"):
-                research = None
-                tailored = None
-                docx_bytes = None
-                error = None
+                research_usage_path = user_dir / "research_usage.json"
+                allowed = username == UNLIMITED_USER or _check_daily_quota(
+                    research_usage_path, DAILY_RESEARCH_LIMIT
+                )[0]
+                if not allowed:
+                    st.error(
+                        f"Free tier is limited to {DAILY_RESEARCH_LIMIT} resume "
+                        "tailoring run(s) a day. Contact marco.hauff@gmail.com to "
+                        "increase your frequency, or ask about the paid subscription."
+                    )
+                else:
+                    if username != UNLIMITED_USER:
+                        _increment_daily_quota(research_usage_path)
 
-                try:
-                    with st.spinner(f"Researching {job['company']}..."):
-                        research = _run_with_retry(
-                            research_company, job["company"], st.session_state.get("role", role)
-                        )
-                except Exception as e:
-                    error = f"Company research failed: {e}"
+                    research = None
+                    tailored = None
+                    docx_bytes = None
+                    error = None
 
-                if research is not None and error is None:
                     try:
-                        with st.spinner("✨ Magic is happening, please wait..."):
-                            tailored = _run_with_retry(
-                                tailor_resume_for_job, job, research, resume_path
+                        with st.spinner(f"Researching {job['company']}..."):
+                            research = _run_with_retry(
+                                research_company, job["company"], st.session_state.get("role", role)
                             )
-                    except FileNotFoundError as e:
-                        error = str(e)
                     except Exception as e:
-                        error = f"Resume tailoring failed: {e}"
+                        error = f"Company research failed: {e}"
 
-                if tailored is not None and error is None:
-                    try:
-                        docx_bytes = build_tailored_docx_bytes(
-                            resume_path, tailored.tailored_paragraphs
-                        )
-                        record_cv_generated(username, "tailored")
-                    except Exception as e:
-                        error = f"Building the tailored resume failed: {e}"
+                    if research is not None and error is None:
+                        try:
+                            with st.spinner("✨ Magic is happening, please wait..."):
+                                tailored = _run_with_retry(
+                                    tailor_resume_for_job, job, research, resume_path
+                                )
+                        except FileNotFoundError as e:
+                            error = str(e)
+                        except Exception as e:
+                            error = f"Resume tailoring failed: {e}"
 
-                st.session_state["job_results"][job_key] = {
-                    "research": research,
-                    "tailored": tailored,
-                    "docx_bytes": docx_bytes,
-                    "error": error,
-                }
+                    if tailored is not None and error is None:
+                        try:
+                            docx_bytes = build_tailored_docx_bytes(
+                                resume_path, tailored.tailored_paragraphs
+                            )
+                            record_cv_generated(username, "tailored")
+                        except Exception as e:
+                            error = f"Building the tailored resume failed: {e}"
+
+                    st.session_state["job_results"][job_key] = {
+                        "research": research,
+                        "tailored": tailored,
+                        "docx_bytes": docx_bytes,
+                        "error": error,
+                    }
 
             result = st.session_state["job_results"].get(job_key)
             if result:

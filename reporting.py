@@ -18,6 +18,16 @@ from auth import DB_PATH
 
 SERPER_ACCOUNT_URL = "https://google.serper.dev/account"
 
+# Anthropic doesn't let a regular API key check credit balance (that
+# needs a separate, more sensitive "Admin API key" scoped to the whole
+# org) - so instead of a real balance, we track actual token usage
+# ourselves and estimate spend from it. Published Claude Sonnet rates,
+# per million tokens - update here if pricing changes.
+PRICE_PER_MILLION_INPUT = 3.00
+PRICE_PER_MILLION_OUTPUT = 15.00
+PRICE_PER_MILLION_CACHE_READ = 0.30
+PRICE_PER_MILLION_CACHE_WRITE = 3.75
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cv_generation_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,12 +35,21 @@ CREATE TABLE IF NOT EXISTS cv_generation_events (
     kind TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS anthropic_token_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    cached_prompt_tokens INTEGER NOT NULL,
+    cache_creation_tokens INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
-    conn.execute(SCHEMA)
+    conn.executescript(SCHEMA)
     return conn
 
 
@@ -46,6 +65,65 @@ def record_cv_generated(username: str, kind: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def record_token_usage(
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_prompt_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+) -> None:
+    """Records one crew run's Anthropic token usage (from CrewOutput.token_usage),
+    so estimated spend survives across runs/restarts."""
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO anthropic_token_events
+                (prompt_tokens, completion_tokens, cached_prompt_tokens,
+                 cache_creation_tokens, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                prompt_tokens,
+                completion_tokens,
+                cached_prompt_tokens,
+                cache_creation_tokens,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_estimated_anthropic_cost() -> float:
+    """Estimated USD spend so far, computed from actual recorded token
+    usage and published Sonnet pricing - not a real account balance
+    (Anthropic doesn't expose that to a regular API key), but a
+    reasonable approximation to track burn rate."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(prompt_tokens), 0),
+                COALESCE(SUM(completion_tokens), 0),
+                COALESCE(SUM(cached_prompt_tokens), 0),
+                COALESCE(SUM(cache_creation_tokens), 0)
+            FROM anthropic_token_events
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+
+    prompt_tokens, completion_tokens, cached_prompt_tokens, cache_creation_tokens = row
+    return (
+        prompt_tokens * PRICE_PER_MILLION_INPUT
+        + completion_tokens * PRICE_PER_MILLION_OUTPUT
+        + cached_prompt_tokens * PRICE_PER_MILLION_CACHE_READ
+        + cache_creation_tokens * PRICE_PER_MILLION_CACHE_WRITE
+    ) / 1_000_000
 
 
 def get_serper_balance() -> int | None:
