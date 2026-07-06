@@ -30,7 +30,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from auth import AuthManager
-from reporting import get_report, record_cv_generated
+from reporting import get_report, get_serper_balance, record_cv_generated
 
 ADMIN_PASSWORD = "REDACTED-ROTATED"
 from job_search import (
@@ -127,6 +127,12 @@ if st.query_params.get("admin") is not None:
         st.caption(
             f"{report['cvs_tailored']} tailored for a specific job, "
             f"{report['cvs_format']} format rebuilds."
+        )
+
+        serper_balance = get_serper_balance()
+        st.metric(
+            "Serper credits remaining",
+            serper_balance if serper_balance is not None else "unavailable",
         )
 
         st.markdown("#### Per user")

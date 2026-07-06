@@ -8,10 +8,15 @@ starts from whenever this was added; nothing before that is counted,
 since it was never tracked.
 """
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 
+import requests
+
 from auth import DB_PATH
+
+SERPER_ACCOUNT_URL = "https://google.serper.dev/account"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cv_generation_events (
@@ -41,6 +46,25 @@ def record_cv_generated(username: str, kind: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def get_serper_balance() -> int | None:
+    """Live remaining-credits balance straight from Serper's own account
+    endpoint - not something we track ourselves, so it can't drift from
+    what Serper actually thinks. Returns None if the API key is missing
+    or the request fails, so the admin page can show that clearly
+    instead of a wrong number."""
+    api_key = os.getenv("SERPER_API_KEY")
+    if not api_key:
+        return None
+    try:
+        response = requests.post(
+            SERPER_ACCOUNT_URL, headers={"X-API-KEY": api_key}, timeout=5
+        )
+        response.raise_for_status()
+        return response.json().get("balance")
+    except (requests.RequestException, ValueError):
+        return None
 
 
 def get_report() -> dict:

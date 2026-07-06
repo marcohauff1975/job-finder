@@ -9,3 +9,4 @@ streamlit-authenticator
 boto3
 pypdf
 playwright
+requests
