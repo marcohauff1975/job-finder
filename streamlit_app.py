@@ -301,7 +301,7 @@ if st.session_state["view"] == "format":
             st.caption(meta["description"])
 
             if st.button("Prepare download", key=f"fmt_prep_{template_key}"):
-                with st.spinner("Rebuilding your resume in this format..."):
+                with st.spinner("✨ Magic is happening, please wait..."):
                     content = st.session_state.get("resume_content")
                     if content is None:
                         content = extract_resume_content(resume_path)
@@ -435,7 +435,7 @@ else:
 
                 if research is not None and error is None:
                     try:
-                        with st.spinner("Tailoring your resume for this role..."):
+                        with st.spinner("✨ Magic is happening, please wait..."):
                             tailored = _run_with_retry(
                                 tailor_resume_for_job, job, research, resume_path
                             )
