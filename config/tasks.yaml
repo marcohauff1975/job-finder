@@ -3,16 +3,21 @@ job_search_task:
     Search for currently open job postings for a '{role}' role, and
     common equivalent titles for that seniority level, located in or
     near {location}. {remote_note}
-    Try a few different search phrasings to surface listings from job
-    boards and company career pages, favoring postings from the last
-    two weeks. Use the search tool to find real, live postings - do
-    not make any up. If the same posting appears from multiple
-    sources, only include it once. For each posting you find, note
-    the job title, company name, location, a link to the posting, and
-    the salary if one is mentioned in the posting (leave it blank if
-    not mentioned). Report every genuine match you find - do not cap
-    the list at an arbitrary number, and do not pad it with weak or
-    irrelevant results just to reach a target count.
+    Budget: run at most 5 search queries in total, mixing a couple of
+    phrasings and title equivalents - do not keep searching beyond
+    that budget to verify or enrich postings you've already found.
+    Use the search tool to find real, live postings - do not make any
+    up. Take the job title, company name, location, a link to the
+    posting, and the salary directly from what each search result
+    already shows (leave salary blank if it isn't visible there) -
+    do not run extra searches just to look up a posting's exact
+    salary, posting date, or full job description once you've already
+    found it; favor postings that look like they were posted in the
+    last two weeks based on what the search results show. If the same
+    posting appears from multiple sources, only include it once.
+    Report every genuine match you find within that search budget -
+    do not pad the list with weak or irrelevant results just to reach
+    a target count.
   expected_output: >
     A list of all real, currently open job postings that match, each
     with: job title, company, location, link, and salary (if

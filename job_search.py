@@ -151,6 +151,10 @@ job_finder = Agent(
     verbose=True,
     inject_date=True,  # gives the agent today's date, so it can judge
                         # what counts as "posted in the last two weeks"
+    max_iter=8,  # safety net on top of the task's own search budget -
+                 # without this the agent kept digging into individual
+                 # postings (salary, exact date, full description) for
+                 # minutes; CrewAI's default of 20 was way too loose.
 )
 
 job_search_task = Task(
