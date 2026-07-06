@@ -277,13 +277,16 @@ def test_performance(
     return result.pydantic if result.pydantic else None
 
 
-def review_ux(change_summary: str, flow_to_test: str) -> UXReviewResult | None:
+def review_ux(
+    change_summary: str, flow_to_test: str, base_url: str = "http://localhost:8501"
+) -> UXReviewResult | None:
     """Run the UX review crew (against this app's own ux_guidelines.md)
     and return the structured result, or None if it failed."""
     inputs = {
         "change_summary": change_summary,
         "flow_to_test": flow_to_test,
         "ux_guidelines": UX_GUIDELINES,
+        "base_url": base_url,
     }
     result = ux_review_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None

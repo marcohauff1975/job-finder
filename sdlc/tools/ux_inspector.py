@@ -25,7 +25,15 @@ from typing import Literal
 
 from crewai.tools import BaseTool
 from docx import Document
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+
+# Generous, since these wait on a real Streamlit rerun (server round-trip
+# + re-render), not just a fixed client-side delay - a loaded machine
+# running several headless browsers at once can genuinely take a few
+# seconds here, and waiting on the actual resulting state is more
+# reliable than guessing a fixed sleep length.
+STATE_CHANGE_TIMEOUT_MS = 15000
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 DB_PATH = REPO_ROOT / "data" / "auth.db"
@@ -101,38 +109,53 @@ def _delete_test_account_and_data() -> None:
         user_dir.rmdir()
 
 
+def _wait_for_text(page, text: str, timeout: int = STATE_CHANGE_TIMEOUT_MS) -> bool:
+    """Waits for text to actually appear (a real Streamlit rerun having
+    happened), rather than guessing how long that rerun takes. Returns
+    False instead of raising if it never shows up, so callers can
+    branch on the outcome."""
+    try:
+        page.get_by_text(text, exact=False).first.wait_for(state="visible", timeout=timeout)
+        return True
+    except PlaywrightTimeoutError:
+        return False
+
+
 def _login_or_register(page) -> None:
     page.get_by_label("Email").fill(TEST_EMAIL)
     page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
     page.get_by_role("button", name="Login").click()
-    page.wait_for_timeout(1500)
 
-    if "Signed in as" in page.inner_text("body"):
+    if _wait_for_text(page, "Signed in as"):
         return
 
-    # Not registered yet - switch to Register and create the account.
+    # Not registered yet (or login failed) - switch to Register and
+    # create the account.
     page.get_by_text("Register", exact=True).click()
-    page.wait_for_timeout(800)
+    page.get_by_label("First name").wait_for(state="visible", timeout=STATE_CHANGE_TIMEOUT_MS)
     page.get_by_label("First name").fill(TEST_FIRST_NAME)
     page.get_by_label("Last name").fill(TEST_LAST_NAME)
     page.get_by_label("Email").fill(TEST_EMAIL)
     page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
     page.get_by_label("Repeat password").fill(TEST_PASSWORD)
     page.get_by_role("button", name="Register").click()
-    page.wait_for_timeout(1500)
+    if not _wait_for_text(page, "Registration successful"):
+        raise RuntimeError("Registration did not confirm success within the timeout.")
 
     page.get_by_text("Login", exact=True).click()
-    page.wait_for_timeout(800)
+    page.get_by_label("Email").wait_for(state="visible", timeout=STATE_CHANGE_TIMEOUT_MS)
     page.get_by_label("Email").fill(TEST_EMAIL)
     page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
     page.get_by_role("button", name="Login").click()
-    page.wait_for_timeout(1500)
+    if not _wait_for_text(page, "Signed in as"):
+        raise RuntimeError("Login did not succeed within the timeout after registering.")
 
 
 def _ensure_resume_uploaded(page, fixture_resume: Path) -> None:
     if page.locator("input[type='file']").count() > 0 and "Upload your resume" in page.inner_text("body"):
         page.locator("input[type='file']").first.set_input_files(str(fixture_resume))
-        page.wait_for_timeout(2000)
+        if not _wait_for_text(page, "Resume on file"):
+            raise RuntimeError("Resume upload did not confirm within the timeout.")
 
 
 def _capture_styles(page) -> dict:
@@ -189,14 +212,20 @@ class UXPageInspectorTool(BaseTool):
                 page = browser.new_page(viewport={"width": 1280, "height": 900})
                 try:
                     page.goto(base_url, wait_until="networkidle", timeout=30000)
-                    page.wait_for_timeout(1000)
+                    page.get_by_label("Email").wait_for(state="visible", timeout=STATE_CHANGE_TIMEOUT_MS)
 
                     _login_or_register(page)
                     _ensure_resume_uploaded(page, fixture_resume)
 
                     if view == "format":
-                        page.get_by_role("button", name="Change resume format").click()
-                        page.wait_for_timeout(1500)
+                        page.get_by_role("button", name="Change resume format").click(
+                            timeout=STATE_CHANGE_TIMEOUT_MS
+                        )
+                        if not _wait_for_text(page, "Pick a layout to rebuild"):
+                            raise RuntimeError(
+                                "Clicked 'Change resume format' but the format "
+                                "view never rendered within the timeout."
+                            )
 
                     screenshot_path = SCREENSHOTS_DIR / f"{view}_{int(time.time())}.png"
                     page.screenshot(path=str(screenshot_path), full_page=True)

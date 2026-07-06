@@ -60,6 +60,9 @@ ux_review_task:
     {change_summary}
     This app's written UX guidelines are:
     {ux_guidelines}
+    The app is running at {base_url} - pass this exact value as the
+    base_url argument every time you call inspect_job_finder_page, do
+    not guess a different host or port.
     Use the inspect_job_finder_page tool to actually look at both of
     this app's front-end views - call it once with view='main' and
     once with view='format' - focusing on {flow_to_test}. Do not call
