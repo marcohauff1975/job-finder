@@ -45,6 +45,14 @@ import streamlit as st
 from crewai.events.event_bus import crewai_event_bus
 from crewai.events.event_types import (
     AgentExecutionCompletedEvent,
+    AgentExecutionErrorEvent,
+    AgentExecutionStartedEvent,
+    LLMCallCompletedEvent,
+    LLMCallFailedEvent,
+    LLMCallStartedEvent,
+    TaskCompletedEvent,
+    TaskFailedEvent,
+    TaskStartedEvent,
     ToolUsageFinishedEvent,
     ToolUsageStartedEvent,
 )
@@ -81,15 +89,24 @@ def _add_step(step_id: str, label: str, input_text: str) -> None:
     _render_steps()
 
 
-def _complete_step(step_id: str, output: str) -> None:
+def _complete_step(step_id: str, output: str, state: str = "complete") -> None:
     if not st.session_state.get("ai_viewer_mode"):
         return
     for step in st.session_state.get("ai_steps", []):
         if step["id"] == step_id:
             step["output"] = output
-            step["state"] = "complete"
+            step["state"] = state
             break
     _render_steps()
+
+
+def _agent_role(event, agent_attr: str | None = "agent") -> str:
+    """event.agent_role isn't always populated on every event; the
+    actual agent/from_agent object (where present) always has its
+    role - prefer that, falling back to agent_role, then a generic
+    label."""
+    agent_obj = getattr(event, agent_attr, None) if agent_attr else None
+    return getattr(agent_obj, "role", None) or getattr(event, "agent_role", None) or "Agent"
 
 
 def _with_script_ctx(fn, *args) -> None:
@@ -119,13 +136,59 @@ def _on_tool_finished(source, event: ToolUsageFinishedEvent) -> None:
     _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.output))
 
 
+def _on_agent_started(source, event: AgentExecutionStartedEvent) -> None:
+    _with_script_ctx(
+        _add_step,
+        event.event_id,
+        f"{_agent_role(event)} → started",
+        _truncate(event.task_prompt),
+    )
+
+
 def _on_agent_finished(source, event: AgentExecutionCompletedEvent) -> None:
-    # event.agent_role isn't always populated on this event; the agent
-    # object itself always has its role, so prefer that.
-    role = getattr(event.agent, "role", None) or event.agent_role or "Agent"
-    step_id = f"agent-finish-{event.event_id}"
-    _with_script_ctx(_add_step, step_id, f"{role} → finished", "")
-    _with_script_ctx(_complete_step, step_id, _truncate(event.output))
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.output))
+
+
+def _on_agent_error(source, event: AgentExecutionErrorEvent) -> None:
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.error), "error")
+
+
+def _on_task_started(source, event: TaskStartedEvent) -> None:
+    description = getattr(event.task, "description", "") if event.task else ""
+    _with_script_ctx(
+        _add_step,
+        event.event_id,
+        f"{_agent_role(event, agent_attr=None)} → task started",
+        _truncate(description),
+    )
+
+
+def _on_task_completed(source, event: TaskCompletedEvent) -> None:
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.output))
+
+
+def _on_task_failed(source, event: TaskFailedEvent) -> None:
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.error), "error")
+
+
+def _on_llm_call_started(source, event: LLMCallStartedEvent) -> None:
+    _with_script_ctx(
+        _add_step,
+        event.event_id,
+        f"{_agent_role(event, agent_attr='from_agent')} → LLM call ({event.model})",
+        "",
+    )
+
+
+def _on_llm_call_completed(source, event: LLMCallCompletedEvent) -> None:
+    summary = f"finish_reason: {event.finish_reason}"
+    if event.usage:
+        summary += f"\nusage: {event.usage}"
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(summary))
+
+
+def _on_llm_call_failed(source, event: LLMCallFailedEvent) -> None:
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.error), "error")
 
 
 # Registered exactly once, at first import - not per crew run. These
@@ -135,7 +198,15 @@ def _on_agent_finished(source, event: AgentExecutionCompletedEvent) -> None:
 # ScriptRunContext).
 crewai_event_bus.on(ToolUsageStartedEvent)(_on_tool_started)
 crewai_event_bus.on(ToolUsageFinishedEvent)(_on_tool_finished)
+crewai_event_bus.on(AgentExecutionStartedEvent)(_on_agent_started)
 crewai_event_bus.on(AgentExecutionCompletedEvent)(_on_agent_finished)
+crewai_event_bus.on(AgentExecutionErrorEvent)(_on_agent_error)
+crewai_event_bus.on(TaskStartedEvent)(_on_task_started)
+crewai_event_bus.on(TaskCompletedEvent)(_on_task_completed)
+crewai_event_bus.on(TaskFailedEvent)(_on_task_failed)
+crewai_event_bus.on(LLMCallStartedEvent)(_on_llm_call_started)
+crewai_event_bus.on(LLMCallCompletedEvent)(_on_llm_call_completed)
+crewai_event_bus.on(LLMCallFailedEvent)(_on_llm_call_failed)
 
 
 def _render_steps() -> None:
