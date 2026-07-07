@@ -71,12 +71,25 @@ def _truncate(text: Any) -> str:
     return text if len(text) <= MAX_FIELD_CHARS else text[:MAX_FIELD_CHARS] + "... (truncated)"
 
 
-def _append_and_render(entry: str) -> None:
+def _add_step(step_id: str, label: str, input_text: str) -> None:
     if not st.session_state.get("ai_viewer_mode"):
         return
-    st.session_state.setdefault("ai_action_log", [])
-    st.session_state["ai_action_log"].append(entry)
-    _render_log()
+    st.session_state.setdefault("ai_steps", [])
+    st.session_state["ai_steps"].append(
+        {"id": step_id, "label": label, "input": input_text, "output": None, "state": "running"}
+    )
+    _render_steps()
+
+
+def _complete_step(step_id: str, output: str) -> None:
+    if not st.session_state.get("ai_viewer_mode"):
+        return
+    for step in st.session_state.get("ai_steps", []):
+        if step["id"] == step_id:
+            step["output"] = output
+            step["state"] = "complete"
+            break
+    _render_steps()
 
 
 def _with_script_ctx(fn, *args) -> None:
@@ -94,26 +107,25 @@ def _with_script_ctx(fn, *args) -> None:
 
 
 def _on_tool_started(source, event: ToolUsageStartedEvent) -> None:
-    entry = (
-        f"**{event.agent_role}** → tool call: `{event.tool_name}`\n"
-        f"- input: `{_truncate(event.tool_args)}`\n"
-        f"- result: _(running...)_"
+    _with_script_ctx(
+        _add_step,
+        event.event_id,
+        f"{event.agent_role} → {event.tool_name}",
+        _truncate(event.tool_args),
     )
-    _with_script_ctx(_append_and_render, entry)
 
 
 def _on_tool_finished(source, event: ToolUsageFinishedEvent) -> None:
-    entry = (
-        f"**{event.agent_role}** → tool call: `{event.tool_name}`\n"
-        f"- input: `{_truncate(event.tool_args)}`\n"
-        f"- result: {_truncate(event.output)}"
-    )
-    _with_script_ctx(_append_and_render, entry)
+    _with_script_ctx(_complete_step, event.started_event_id, _truncate(event.output))
 
 
 def _on_agent_finished(source, event: AgentExecutionCompletedEvent) -> None:
-    entry = f"**{event.agent_role}** → finished\n{_truncate(event.output)}"
-    _with_script_ctx(_append_and_render, entry)
+    # event.agent_role isn't always populated on this event; the agent
+    # object itself always has its role, so prefer that.
+    role = getattr(event.agent, "role", None) or event.agent_role or "Agent"
+    step_id = f"agent-finish-{event.event_id}"
+    _with_script_ctx(_add_step, step_id, f"{role} → finished", "")
+    _with_script_ctx(_complete_step, step_id, _truncate(event.output))
 
 
 # Registered exactly once, at first import - not per crew run. These
@@ -126,15 +138,30 @@ crewai_event_bus.on(ToolUsageFinishedEvent)(_on_tool_finished)
 crewai_event_bus.on(AgentExecutionCompletedEvent)(_on_agent_finished)
 
 
-def _render_log() -> None:
+def _render_steps() -> None:
+    """Fully redraws every recorded step, in order, as its own
+    st.status() card - a spinner while running, a checkmark once
+    complete - into a fresh container each time. Rebuilding from
+    scratch (rather than patching one existing widget in place) is
+    what avoids duplicating earlier steps: a plain st.container() only
+    ever appends across repeated `with` blocks in the same script run,
+    so redrawing into a fresh placeholder.container() is what makes
+    an update look like an in-place change instead of a growing pile."""
     placeholder = st.session_state.get("ai_action_placeholder")
     if placeholder is None:
         return
-    entries = st.session_state.get("ai_action_log", [])
-    if not entries:
-        placeholder.caption("No AI activity yet - actions will appear here as they happen.")
-        return
-    placeholder.markdown("\n\n---\n\n".join(entries))
+    steps = st.session_state.get("ai_steps", [])
+    with placeholder.container():
+        if not steps:
+            st.caption("No AI activity yet - actions will appear here as they happen.")
+            return
+        for step in steps:
+            running = step["state"] == "running"
+            with st.status(step["label"], state=step["state"], expanded=running):
+                if step["input"]:
+                    st.code(step["input"], language="json")
+                if step["output"] is not None:
+                    st.write(step["output"])
 
 
 def render_sidebar_toggle() -> None:
@@ -147,17 +174,28 @@ def setup_layout():
     any of the existing page content. Returns the container the rest
     of the page should be rendered inside (via `with setup_layout():`)
     - a real column (left, 3/5 width) if AI viewer mode is on, or a
-    full-width container otherwise. Also sets up the live log
-    placeholder in the right column, if applicable."""
+    full-width container otherwise. Also sets up the live step feed
+    in the right column, if applicable.
+
+    Both sides are bordered containers (st.container(border=True)),
+    each carrying its own title ("Job Finder" on the left, added by
+    streamlit_app.py; "AI viewer mode" here on the right) - two
+    visually separate windows side by side, not one shared header
+    floating above a column split."""
     _capture_script_ctx()
     if st.session_state.get("ai_viewer_mode"):
         main_col, log_col = st.columns([3, 2])
-        with log_col:
-            st.markdown("#### AI actions")
+        window = log_col.container(border=True)
+        with window:
+            st.markdown(
+                '<div class="hero-badge">✨ Powered by AI agents</div>'
+                '<div class="hero-title" style="font-size:1.8rem;">AI viewer mode</div>',
+                unsafe_allow_html=True,
+            )
             if st.button("Clear log", key="clear_ai_log"):
-                st.session_state["ai_action_log"] = []
+                st.session_state["ai_steps"] = []
             st.session_state["ai_action_placeholder"] = st.empty()
-            _render_log()
-        return main_col
+            _render_steps()
+        return main_col.container(border=True)
     st.session_state["ai_action_placeholder"] = None
     return st.container()

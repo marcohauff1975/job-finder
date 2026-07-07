@@ -355,13 +355,26 @@ st.markdown(
         margin-top: auto;
     }
     </style>
-
-    <div class="hero-badge">✨ Powered by AI agents</div>
-    <div class="hero-title">Job Finder</div>
-    <div class="hero-tagline">AI-powered job search, company research, and resume tailoring — built to land you the interview.</div>
     """,
     unsafe_allow_html=True,
 )
+
+HERO_BADGE_HTML = '<div class="hero-badge">✨ Powered by AI agents</div>'
+
+# Shown full-width above everything on the login screen, and above
+# everything once logged in - EXCEPT in AI viewer mode, where "Job
+# Finder" instead becomes the left window's own title (see
+# setup_layout()) so it sits next to "AI viewer mode" as two separate
+# panels, rather than one shared header floating above a divide.
+if not (st.session_state.get("authentication_status") and st.session_state.get("ai_viewer_mode")):
+    st.markdown(
+        f"""
+        {HERO_BADGE_HTML}
+        <div class="hero-title">Job Finder</div>
+        <div class="hero-tagline">AI-powered job search, company research, and resume tailoring — built to land you the interview.</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 auth = AuthManager()
 if not auth.render_login_or_register():
@@ -380,6 +393,12 @@ render_sidebar_toggle()
 main_col = setup_layout()
 
 with main_col:
+    if st.session_state.get("ai_viewer_mode"):
+        st.markdown(
+            f'{HERO_BADGE_HTML}<div class="hero-title" style="font-size:1.8rem;">Job Finder</div>',
+            unsafe_allow_html=True,
+        )
+
     if not resume_path.exists():
         st.subheader("Upload your resume")
         st.write("Upload a .docx or .pdf resume - this is what will be tailored for each job you search.")
