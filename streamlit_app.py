@@ -22,6 +22,7 @@ users/<their username>/.
 import json
 import os
 import re
+import subprocess
 import time
 from datetime import date
 from pathlib import Path
@@ -63,6 +64,28 @@ USERS_DIR = Path(__file__).parent / "users"
 DAILY_SEARCH_LIMIT = 5
 DAILY_RESEARCH_LIMIT = 1
 UNLIMITED_USER = "marco.hauff@gmail.com"
+
+
+def _get_app_version() -> str:
+    """The commit this running process was actually started from - read
+    once at import time, not on every rerun, so it reflects what code
+    is really loaded (not just what's on disk), which is exactly what
+    diverges when a deploy pulls new code but the service never
+    restarts."""
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        return "unknown"
+
+
+APP_VERSION = _get_app_version()
 
 
 def _check_daily_quota(usage_path: Path, limit: int) -> tuple[bool, int]:
@@ -633,3 +656,9 @@ else:
 
     elif "postings" in st.session_state:
         st.info("No postings found for this search.")
+
+    st.markdown(
+        f'<p style="color:#64748b; font-size:0.8rem; text-align:center; margin-top:2rem;">'
+        f"v{APP_VERSION}</p>",
+        unsafe_allow_html=True,
+    )
