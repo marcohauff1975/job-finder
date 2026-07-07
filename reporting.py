@@ -180,6 +180,19 @@ def set_user_tier(username: str, tier: str) -> None:
         conn.close()
 
 
+def delete_user_data(username: str) -> None:
+    """Removes this user's usage/tier records - called alongside
+    auth.delete_user() when an admin fully deletes an account, so the
+    per-user table doesn't keep showing a ghost entry afterward."""
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM cv_generation_events WHERE username = ?", (username,))
+        conn.execute("DELETE FROM user_tiers WHERE username = ?", (username,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_serper_balance() -> int | None:
     """Live remaining-credits balance straight from Serper's own account
     endpoint - not something we track ourselves, so it can't drift from

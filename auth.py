@@ -17,6 +17,7 @@ deploy that overwrote it with the local dev copy.
 
 import json
 import secrets
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -27,6 +28,7 @@ import yaml
 from notify import send_registration_notification
 
 DB_PATH = Path(__file__).parent / "data" / "auth.db"
+USERS_DIR = Path(__file__).parent / "users"
 
 # Only consulted once, on first run, to migrate anyone already registered
 # before the switch to SQLite. Safe to leave in place indefinitely - once
@@ -53,6 +55,44 @@ CREATE TABLE IF NOT EXISTS users (
     roles TEXT
 );
 """
+
+
+def set_user_password(username: str, new_password: str) -> bool:
+    """Admin action: directly resets a user's password, bypassing the
+    normal change-password flow (no old password required). Hashes with
+    the same bcrypt scheme login checks against, so it takes effect
+    immediately on their next login. Returns False if the user doesn't
+    exist."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        new_hash = stauth.Hasher.hash(new_password)
+        cursor = conn.execute(
+            "UPDATE users SET password = ? WHERE username = ?", (new_hash, username)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def delete_user(username: str) -> bool:
+    """Admin action: removes a user's account and all their on-disk
+    data (resume, tailored resumes, search history) - a full account
+    deletion, not just a login lockout. Returns False if the user
+    didn't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+    finally:
+        conn.close()
+
+    if deleted:
+        user_dir = USERS_DIR / username
+        if user_dir.exists():
+            shutil.rmtree(user_dir)
+    return deleted
 
 
 class SimpleValidator(stauth.Validator):

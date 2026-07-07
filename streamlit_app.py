@@ -30,9 +30,10 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-from auth import AuthManager
+from auth import AuthManager, delete_user, set_user_password
 from reporting import (
     VALID_TIERS,
+    delete_user_data,
     get_estimated_anthropic_cost,
     get_report,
     get_serper_balance,
@@ -225,6 +226,42 @@ if st.query_params.get("admin") is not None:
                 set_user_tier(row["Email"], row["Tier"])
             st.success("Tiers saved.")
             st.rerun()
+
+        user_emails = [row["email"] for row in report["per_user"]]
+
+        st.markdown("#### Reset a user's password")
+        with st.form("admin_reset_password_form"):
+            reset_email = st.selectbox("User", user_emails, key="reset_pw_user")
+            new_password = st.text_input(
+                "New password", type="password", key="reset_pw_value"
+            )
+            if st.form_submit_button("Reset password"):
+                if len(new_password) < 4:
+                    st.error("Password must be at least 4 characters.")
+                else:
+                    set_user_password(reset_email, new_password)
+                    st.success(f"Password reset for {reset_email}.")
+
+        st.markdown("#### Delete a user")
+        st.caption(
+            "Removes the account and all their data (resume, tailored resumes, "
+            "search history) - this can't be undone."
+        )
+        with st.form("admin_delete_user_form"):
+            delete_email = st.selectbox("User", user_emails, key="delete_user_select")
+            confirm_email = st.text_input(
+                "Type the user's email to confirm deletion", key="delete_confirm"
+            )
+            if st.form_submit_button("Delete user"):
+                if delete_email == UNLIMITED_USER:
+                    st.error("Can't delete the admin account.")
+                elif confirm_email != delete_email:
+                    st.error("Confirmation email doesn't match - user not deleted.")
+                else:
+                    delete_user(delete_email)
+                    delete_user_data(delete_email)
+                    st.success(f"Deleted {delete_email} and all their data.")
+                    st.rerun()
     st.stop()
 
 st.markdown(
