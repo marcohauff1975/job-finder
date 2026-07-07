@@ -63,14 +63,14 @@ jobs:
       - name: Capture the commit currently running in production
         id: pre_deploy
         run: |
-          PREV_COMMIT=$(ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+          PREV_COMMIT=$(ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
             "cd $REMOTE_APP_DIR && git rev-parse HEAD")
           echo "previous_commit=$PREV_COMMIT" >> "$GITHUB_OUTPUT"
           echo "Production is currently on: $PREV_COMMIT"
 
       - name: Pull latest main on the server
         run: |
-          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+          ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
             "cd $REMOTE_APP_DIR && git pull --ff-only origin main"
 
       - name: Decide whether a restart is actually needed
@@ -95,7 +95,7 @@ jobs:
       - name: Restart jobfinder.service
         if: steps.diff.outputs.needs_restart == 'true'
         run: |
-          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" "sudo systemctl restart $SERVICE_NAME"
+          ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" "sudo systemctl restart $SERVICE_NAME"
           sleep 5
 
       - name: Run prod_tester (and rollback_agent if needed)
