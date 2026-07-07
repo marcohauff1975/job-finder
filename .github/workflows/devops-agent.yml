@@ -1,0 +1,79 @@
+name: DevOps auto-fix on deploy failure
+
+# Fires automatically whenever either deploy workflow completes with a
+# failure - no manual trigger needed. devops_agent diagnoses the real
+# failure from that run's own logs, applies a minimal fix, pushes it,
+# and re-triggers the same workflow so the pipeline heals itself.
+#
+# Guards against looping: if the most recent commit on main is already
+# a previous devops-agent fix, that fix evidently didn't resolve the
+# failure - this stops and emails instead of trying again
+# automatically.
+on:
+  workflow_run:
+    workflows: ["Deploy to production", "AI prod flow"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  respond:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout (full history, so we can inspect the last commit)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whether the last commit was already an unsuccessful auto-fix
+        id: guard
+        run: |
+          LAST_MSG=$(git log -1 --format=%s)
+          echo "Last commit: $LAST_MSG"
+          if [[ "$LAST_MSG" == "[devops-agent]"* ]]; then
+            echo "already_tried=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_tried=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.guard.outputs.already_tried == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        if: steps.guard.outputs.already_tried == 'false'
+        run: pip install -r requirements.txt
+
+      - name: Set up git identity for the auto-fix commit
+        if: steps.guard.outputs.already_tried == 'false'
+        run: |
+          git config user.name "devops-agent"
+          git config user.email "devops-agent@users.noreply.github.com"
+
+      - name: Run devops_agent
+        if: steps.guard.outputs.already_tried == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILED_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          FAILED_WORKFLOW_FILE: ${{ github.event.workflow_run.path }}
+          FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python sdlc/devops_agent_runner.py
+
+      - name: Notify that this needs a human (already tried once)
+        if: steps.guard.outputs.already_tried == 'true'
+        env:
+          FAILED_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          python3 -c "
+          import os
+          from notify import send_devops_giveup_notification
+          send_devops_giveup_notification(os.environ['FAILED_WORKFLOW_NAME'], str(os.environ['FAILED_RUN_ID']))
+          "

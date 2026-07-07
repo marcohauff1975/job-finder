@@ -34,6 +34,7 @@ from pathlib import Path
 
 import yaml
 from crewai import Agent, Task, Crew, Process, LLM
+from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
@@ -43,6 +44,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from sdlc.tools.devops_ops import (
+    CommitAndPushFixTool,
+    FetchFailedRunLogsTool,
+    RetriggerWorkflowTool,
+)
 from sdlc.tools.ux_inspector import UXPageInspectorTool
 from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
 
@@ -98,6 +104,14 @@ class RollbackResult(BaseModel):
     current_commit: str
     rollback_test_passed: bool
     summary: str
+
+
+class DevOpsFixResult(BaseModel):
+    root_cause: str
+    files_changed: list[str] = []
+    fix_summary: str
+    commit_pushed: bool
+    workflow_retriggered: bool
 
 
 # --- Demo inputs ----------------------------------------------------------
@@ -251,6 +265,39 @@ rollback_crew = Crew(
     verbose=True,
 )
 
+# --- DevOps Agent: agent + task + crew -----------------------------------
+# Deliberately on claude_high rather than claude_small like the other 5
+# agents for now - this one pushes a fix straight to origin/main and
+# re-triggers a production deploy with no human review step in
+# between, so a wrong diagnosis here is more costly than in the other
+# agents' review/report-only roles.
+
+devops_agent = Agent(
+    config=agents_config["devops_agent"],
+    llm=claude_high,
+    tools=[
+        FetchFailedRunLogsTool(),
+        FileReadTool(),
+        FileWriterTool(),
+        CommitAndPushFixTool(),
+        RetriggerWorkflowTool(),
+    ],
+    verbose=True,
+)
+
+devops_fix_task = Task(
+    config=tasks_config["devops_fix_task"],
+    agent=devops_agent,
+    output_pydantic=DevOpsFixResult,
+)
+
+devops_fix_crew = Crew(
+    agents=[devops_agent],
+    tasks=[devops_fix_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
 
 def review_code(diff: str) -> CodeReviewResult | None:
     """Run the code review crew over a diff and return the structured
@@ -353,6 +400,24 @@ def rollback(
         "service_url": service_url,
     }
     result = rollback_crew.kickoff(inputs=inputs)
+    return result.pydantic if result.pydantic else None
+
+
+def fix_deploy_failure(
+    workflow_name: str, workflow_file: str, run_id: str
+) -> DevOpsFixResult | None:
+    """Run the devops-agent crew against a just-failed deploy workflow
+    run and return the structured result, or None if it failed. Meant
+    to be called at most once per failure - see devops_agent's own
+    backstory and .github/workflows/devops-agent.yml's guard step for
+    how a repeat failure right after an auto-fix is handled instead of
+    calling this again."""
+    inputs = {
+        "workflow_name": workflow_name,
+        "workflow_file": workflow_file,
+        "run_id": run_id,
+    }
+    result = devops_fix_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None
 
 

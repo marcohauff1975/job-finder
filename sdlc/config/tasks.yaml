@@ -117,6 +117,32 @@ performance_test_task:
     call took 70s") rather than just "it's slow." Confirmation any
     test account/data was cleaned up.
 
+devops_fix_task:
+  description: >
+    The GitHub Actions workflow "{workflow_name}" (run ID {run_id})
+    just failed. Call fetch_failed_run_logs with run_id={run_id} to get
+    the actual failure output - do not form a theory about what went
+    wrong before you've read it. Identify the precise root cause,
+    quoting the exact error line(s) from that output. Then use the
+    file-reading tool to look at whatever file is actually responsible
+    (the failing workflow's own YAML under .github/workflows/, or
+    application code if the log points there) before changing
+    anything - confirm your hypothesis against its real current
+    content, don't assume what it currently contains. Apply the
+    smallest fix that addresses the confirmed root cause using the
+    file-writing tool (pass overwrite=true), then call
+    commit_and_push_fix with the exact file path(s) you changed and a
+    one-line commit message describing the fix. Once that succeeds,
+    call retrigger_deploy_workflow with workflow_file={workflow_file}
+    to redeploy. Never touch .env, anything under data/ or users/, or
+    make any change beyond what the confirmed root cause requires.
+  expected_output: >
+    The exact root cause (quoting the real error), which file(s) you
+    changed and what the fix was, confirmation the commit was pushed
+    (with its message), and confirmation the workflow was
+    re-triggered.
+  agent: devops_agent
+
 rollback_task:
   description: >
     The production smoke test for commit {new_commit} failed with:
