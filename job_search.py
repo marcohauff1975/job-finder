@@ -27,6 +27,7 @@ import io
 import json
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -41,7 +42,7 @@ from docx.shared import Inches, Pt, RGBColor
 from pydantic import BaseModel
 from pypdf import PdfReader
 
-from reporting import record_token_usage
+from reporting import TIER_FREE, TIER_PAID, TIER_POWER, record_token_usage
 
 load_dotenv()
 
@@ -135,8 +136,31 @@ with open(CONFIG_DIR / "tasks.yaml", "r") as f:
     tasks_config = yaml.safe_load(f)
 
 # --- LLM (same Claude setup as main.py) --------------------------------
+# Two models, not one - which agents get the expensive one depends on
+# the user's tier (see TIER_HIGH_MODEL_AGENTS below). resume_reviewer
+# and resume_formatter always use the cheap model regardless of tier:
+# reviewing is optional general feedback, and formatting is pure
+# structured extraction - neither needs the expensive model's quality.
 
-claude = LLM(model="anthropic/claude-sonnet-5")
+claude_small = LLM(model="anthropic/claude-haiku-4-5-20251001")
+claude_high = LLM(model="anthropic/claude-sonnet-5")
+
+# Of the three agents whose model is tier-dependent (job_finder,
+# company_researcher, resume_tailor), which ones get the expensive
+# model at each tier. Anything not listed for a tier uses claude_small.
+TIER_HIGH_MODEL_AGENTS = {
+    TIER_FREE: frozenset(),
+    TIER_PAID: frozenset({"job_finder", "company_researcher"}),
+    TIER_POWER: frozenset({"job_finder", "company_researcher", "resume_tailor"}),
+}
+
+
+def _llm_for(tier: str, agent_name: str) -> LLM:
+    """Which model the given agent should use for this user's tier. An
+    unrecognized tier falls back to the cheapest option rather than
+    silently defaulting to the expensive model."""
+    high_agents = TIER_HIGH_MODEL_AGENTS.get(tier, frozenset())
+    return claude_high if agent_name in high_agents else claude_small
 
 # --- Tool ---------------------------------------------------------------
 # SerperDevTool lets agents run real Google searches.
@@ -144,86 +168,88 @@ claude = LLM(model="anthropic/claude-sonnet-5")
 
 search_tool = SerperDevTool()
 
-# --- Job Finder: agent + task + crew ---------------------------------------
+# --- Job Finder, Company Researcher, Resume Tailor: built per call ---------
+# These three agents' models depend on the calling user's tier, so
+# unlike the two below, they can't be built once as module-level
+# singletons - each is built fresh inside its find_/research_/tailor_
+# function, using _llm_for(tier, ...) to pick the model.
 
-job_finder = Agent(
-    config=agents_config["job_finder"],
-    tools=[search_tool],
-    llm=claude,
-    verbose=True,
-    inject_date=True,  # gives the agent today's date, so it can judge
-                        # what counts as "posted in the last two weeks"
-    max_iter=8,  # safety net on top of the task's own search budget -
-                 # without this the agent kept digging into individual
-                 # postings (salary, exact date, full description) for
-                 # minutes; CrewAI's default of 20 was way too loose.
-)
+def _build_job_search_crew(tier: str) -> Crew:
+    job_finder = Agent(
+        config=agents_config["job_finder"],
+        tools=[search_tool],
+        llm=_llm_for(tier, "job_finder"),
+        verbose=True,
+        inject_date=True,  # gives the agent today's date, so it can judge
+                            # what counts as "posted in the last two weeks"
+        max_iter=8,  # safety net on top of the task's own search budget -
+                     # without this the agent kept digging into individual
+                     # postings (salary, exact date, full description) for
+                     # minutes; CrewAI's default of 20 was way too loose.
+    )
+    job_search_task = Task(
+        config=tasks_config["job_search_task"],
+        agent=job_finder,
+        output_pydantic=JobSearchResult,
+    )
+    return Crew(
+        agents=[job_finder],
+        tasks=[job_search_task],
+        process=Process.sequential,
+        verbose=True,
+    )
 
-job_search_task = Task(
-    config=tasks_config["job_search_task"],
-    agent=job_finder,
-    output_pydantic=JobSearchResult,
-)
 
-job_search_crew = Crew(
-    agents=[job_finder],
-    tasks=[job_search_task],
-    process=Process.sequential,
-    verbose=True,
-)
+def _build_research_crew(tier: str) -> Crew:
+    company_researcher = Agent(
+        config=agents_config["company_researcher"],
+        tools=[search_tool],
+        llm=_llm_for(tier, "company_researcher"),
+        verbose=True,
+    )
+    company_research_task = Task(
+        config=tasks_config["company_research_task"],
+        agent=company_researcher,
+        output_pydantic=CompanyResearch,
+    )
+    return Crew(
+        agents=[company_researcher],
+        tasks=[company_research_task],
+        process=Process.sequential,
+        verbose=True,
+    )
 
-# --- Company Researcher: agent + task + crew --------------------------------
 
-company_researcher = Agent(
-    config=agents_config["company_researcher"],
-    tools=[search_tool],
-    llm=claude,
-    verbose=True,
-)
+def _build_resume_tailor_crew(tier: str) -> Crew:
+    # No search tool needed here - it only reasons over the resume, job
+    # posting, and company research it's given.
+    resume_tailor = Agent(
+        config=agents_config["resume_tailor"],
+        llm=_llm_for(tier, "resume_tailor"),
+        verbose=True,
+    )
+    resume_tailor_task = Task(
+        config=tasks_config["resume_tailor_task"],
+        agent=resume_tailor,
+        output_pydantic=TailoredResume,
+    )
+    return Crew(
+        agents=[resume_tailor],
+        tasks=[resume_tailor_task],
+        process=Process.sequential,
+        verbose=True,
+    )
 
-company_research_task = Task(
-    config=tasks_config["company_research_task"],
-    agent=company_researcher,
-    output_pydantic=CompanyResearch,
-)
-
-research_crew = Crew(
-    agents=[company_researcher],
-    tasks=[company_research_task],
-    process=Process.sequential,
-    verbose=True,
-)
-
-# --- Resume Tailor: agent + task + crew --------------------------------------
-# No search tool needed here - it only reasons over the resume, job
-# posting, and company research it's given.
-
-resume_tailor = Agent(
-    config=agents_config["resume_tailor"],
-    llm=claude,
-    verbose=True,
-)
-
-resume_tailor_task = Task(
-    config=tasks_config["resume_tailor_task"],
-    agent=resume_tailor,
-    output_pydantic=TailoredResume,
-)
-
-resume_crew = Crew(
-    agents=[resume_tailor],
-    tasks=[resume_tailor_task],
-    process=Process.sequential,
-    verbose=True,
-)
 
 # --- Resume Reviewer: agent + task + crew ------------------------------
 # General-purpose feedback on the resume as it stands - not tied to any
-# specific job posting, unlike the tailor above.
+# specific job posting, unlike the tailor above. Always the cheap
+# model, regardless of tier - it's optional feedback, not the resume
+# that actually goes to an employer.
 
 resume_reviewer = Agent(
     config=agents_config["resume_reviewer"],
-    llm=claude,
+    llm=claude_small,
     verbose=True,
 )
 
@@ -248,7 +274,7 @@ review_crew = Crew(
 
 resume_formatter = Agent(
     config=agents_config["resume_formatter"],
-    llm=claude,
+    llm=claude_small,
     verbose=True,
 )
 
@@ -386,6 +412,65 @@ def build_tailored_docx_bytes(
     return buffer.getvalue()
 
 
+# --- Tailored resume history ------------------------------------------
+# A tailoring run's output was previously only ever a one-off download -
+# once the session ended, it was gone. These persist the resulting
+# .docx and its changes-summary "diff" against the original to disk, so
+# a user can come back later and see/download everything they've had
+# tailored, not just what's in their current session.
+
+TAILORED_RESUMES_DIRNAME = "tailored_resumes"
+
+
+def _tailored_resumes_index(user_dir: Path) -> Path:
+    return user_dir / "tailored_resumes.json"
+
+
+def load_tailored_resumes(user_dir: Path) -> list[dict]:
+    """This user's saved tailored-resume entries, newest first."""
+    index_path = _tailored_resumes_index(user_dir)
+    if not index_path.exists():
+        return []
+    try:
+        entries = json.loads(index_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    return sorted(entries, key=lambda e: e["generated_at"], reverse=True)
+
+
+def save_tailored_resume(
+    user_dir: Path, job: dict, changes_summary: str, docx_bytes: bytes
+) -> dict:
+    """Writes one tailoring run's resume + changes-summary files to this
+    user's tailored_resumes/ folder and records the entry in
+    tailored_resumes.json, so it shows up in their history."""
+    resumes_dir = user_dir / TAILORED_RESUMES_DIRNAME
+    resumes_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc)
+    entry_id = f"{timestamp.strftime('%Y%m%dT%H%M%S%f')}_{_slugify(job['company'])}"
+    docx_filename = f"{entry_id}.docx"
+    changes_filename = f"{entry_id}_changes.txt"
+
+    (resumes_dir / docx_filename).write_bytes(docx_bytes)
+    (resumes_dir / changes_filename).write_text(changes_summary)
+
+    entry = {
+        "id": entry_id,
+        "title": job["title"],
+        "company": job["company"],
+        "location": job["location"],
+        "generated_at": timestamp.isoformat(),
+        "docx_filename": docx_filename,
+        "changes_filename": changes_filename,
+    }
+
+    entries = load_tailored_resumes(user_dir)
+    entries.append(entry)
+    _tailored_resumes_index(user_dir).write_text(json.dumps(entries))
+    return entry
+
+
 # --- Formatting helpers for feeding structured data into task prompts ----
 
 def _format_job_posting(job: dict) -> str:
@@ -434,11 +519,12 @@ def _record_crew_tokens(result) -> None:
 
 
 def find_jobs(
-    role: str, location: str, remote: bool, history_dir: Path
+    role: str, location: str, remote: bool, history_dir: Path, tier: str = TIER_FREE
 ) -> list[dict]:
     """Run the job search crew and return a list of posting dicts, each
     marked with is_new (True if not seen in the last search for this
-    same role+location, within this history_dir)."""
+    same role+location, within this history_dir). tier picks which
+    model this user's job_finder agent uses - see TIER_HIGH_MODEL_AGENTS."""
     remote_note = (
         "The person is open to fully remote roles."
         if remote
@@ -449,7 +535,7 @@ def find_jobs(
         "location": location,
         "remote_note": remote_note,
     }
-    result = job_search_crew.kickoff(inputs=inputs)
+    result = _build_job_search_crew(tier).kickoff(inputs=inputs)
     _record_crew_tokens(result)
     postings = result.pydantic.postings if result.pydantic else []
 
@@ -479,21 +565,25 @@ def find_jobs(
     return enriched
 
 
-def research_company(company: str, role: str) -> CompanyResearch | None:
+def research_company(
+    company: str, role: str, tier: str = TIER_FREE
+) -> CompanyResearch | None:
     """Run the company research crew for a single company and return the
-    structured result (or None if the agent didn't return valid data)."""
+    structured result (or None if the agent didn't return valid data).
+    tier picks which model this user's company_researcher agent uses."""
     inputs = {"company": company, "role": role}
-    result = research_crew.kickoff(inputs=inputs)
+    result = _build_research_crew(tier).kickoff(inputs=inputs)
     _record_crew_tokens(result)
     return result.pydantic if result.pydantic else None
 
 
 def tailor_resume_for_job(
-    job: dict, company_research: CompanyResearch, resume_path: Path
+    job: dict, company_research: CompanyResearch, resume_path: Path, tier: str = TIER_FREE
 ) -> TailoredResume | None:
     """Run the resume tailor crew for a specific job posting + company
     research, using the resume at resume_path, and return the structured
-    result (or None if it failed)."""
+    result (or None if it failed). tier picks which model this user's
+    resume_tailor agent uses."""
     paragraphs = read_resume_paragraphs(resume_path)
     numbered_resume = "\n".join(
         f"{i + 1}. {text}" for i, text in enumerate(paragraphs)
@@ -507,7 +597,7 @@ def tailor_resume_for_job(
         "job_posting": _format_job_posting(job),
         "company_research": _format_company_research(company_research),
     }
-    result = resume_crew.kickoff(inputs=inputs)
+    result = _build_resume_tailor_crew(tier).kickoff(inputs=inputs)
     _record_crew_tokens(result)
     return result.pydantic if result.pydantic else None
 

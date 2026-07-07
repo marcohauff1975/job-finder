@@ -44,7 +44,27 @@ CREATE TABLE IF NOT EXISTS anthropic_token_events (
     cache_creation_tokens INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_tiers (
+    username TEXT PRIMARY KEY,
+    tier TEXT NOT NULL
+);
 """
+
+# Which Claude model tier each registered user is on, controlling which
+# agents in job_search.py get the expensive model vs the cheap one -
+# see job_search.py's TIER_HIGH_MODEL_AGENTS for the actual mapping.
+TIER_FREE = "free"
+TIER_PAID = "paid"
+TIER_POWER = "power"
+VALID_TIERS = (TIER_FREE, TIER_PAID, TIER_POWER)
+
+# Throwaway accounts used by automated/manual testing (the ux_reviewer
+# SDLC agent, local QA, this session's own scratch testing) all use the
+# @example.com domain - forcing them onto the free tier regardless of
+# whatever's stored keeps testing from silently running up paid-tier
+# model costs.
+TEST_ACCOUNT_DOMAIN = "@example.com"
 
 
 def _connect() -> sqlite3.Connection:
@@ -126,6 +146,40 @@ def get_estimated_anthropic_cost() -> float:
     ) / 1_000_000
 
 
+def get_user_tier(username: str) -> str:
+    """This user's model tier, defaulting to free if the admin has
+    never set one. Test accounts (@example.com) always get free,
+    regardless of what's stored, so testing can't run up paid-tier
+    model costs."""
+    if username.endswith(TEST_ACCOUNT_DOMAIN):
+        return TIER_FREE
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT tier FROM user_tiers WHERE username = ?", (username,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row and row[0] in VALID_TIERS else TIER_FREE
+
+
+def set_user_tier(username: str, tier: str) -> None:
+    if tier not in VALID_TIERS:
+        raise ValueError(f"Unknown tier: {tier!r}")
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_tiers (username, tier) VALUES (?, ?)
+            ON CONFLICT(username) DO UPDATE SET tier = excluded.tier
+            """,
+            (username, tier),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_serper_balance() -> int | None:
     """Live remaining-credits balance straight from Serper's own account
     endpoint - not something we track ourselves, so it can't drift from
@@ -174,6 +228,7 @@ def get_report() -> dict:
                 "tailored": user_tailored,
                 "format": user_format,
                 "total": user_tailored + user_format,
+                "tier": get_user_tier(username),
             })
     finally:
         conn.close()

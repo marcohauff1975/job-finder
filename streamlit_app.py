@@ -31,10 +31,13 @@ from dotenv import load_dotenv
 
 from auth import AuthManager
 from reporting import (
+    VALID_TIERS,
     get_estimated_anthropic_cost,
     get_report,
     get_serper_balance,
+    get_user_tier,
     record_cv_generated,
+    set_user_tier,
 )
 
 ADMIN_PASSWORD = "REDACTED-ROTATED"
@@ -43,10 +46,12 @@ from job_search import (
     build_tailored_docx_bytes,
     extract_resume_content,
     find_jobs,
+    load_tailored_resumes,
     render_resume_in_format,
     research_company,
     review_resume,
     save_resume_upload,
+    save_tailored_resume,
     tailor_resume_for_job,
 )
 
@@ -166,19 +171,37 @@ if st.query_params.get("admin") is not None:
         )
 
         st.markdown("#### Per user")
-        st.dataframe(
+        st.caption(
+            "Tier controls which Claude model each user's agents use - see "
+            "job_search.py's TIER_HIGH_MODEL_AGENTS. Test accounts (@example.com) "
+            "always run on free regardless of what's set here."
+        )
+        edited_rows = st.data_editor(
             [
                 {
                     "Email": row["email"],
                     "Tailored for a job": row["tailored"],
                     "Format rebuilds": row["format"],
                     "Total": row["total"],
+                    "Tier": row["tier"],
                 }
                 for row in report["per_user"]
             ],
+            column_config={
+                "Tier": st.column_config.SelectboxColumn(
+                    options=list(VALID_TIERS), required=True
+                ),
+            },
+            disabled=["Email", "Tailored for a job", "Format rebuilds", "Total"],
             use_container_width=True,
             hide_index=True,
+            key="tier_editor",
         )
+        if st.button("Save tier changes"):
+            for row in edited_rows:
+                set_user_tier(row["Email"], row["Tier"])
+            st.success("Tiers saved.")
+            st.rerun()
     st.stop()
 
 st.markdown(
@@ -280,6 +303,7 @@ if not auth.render_login_or_register():
     st.stop()
 
 username = auth.username
+user_tier = get_user_tier(username)
 user_dir = USERS_DIR / username
 user_dir.mkdir(parents=True, exist_ok=True)
 resume_path = user_dir / "resume.docx"
@@ -435,11 +459,48 @@ else:
                     )
                 else:
                     with st.spinner("✨ Magic is happening, please wait..."):
-                        postings = find_jobs(role, location, remote, history_dir)
+                        postings = find_jobs(role, location, remote, history_dir, user_tier)
                     _increment_daily_quota(user_dir / "usage.json")
                     _save_last_search(user_dir, role, location, remote)
                     st.session_state["postings"] = postings
                     st.session_state["role"] = role
+
+    tailored_resumes = load_tailored_resumes(user_dir)
+    with st.expander(f"Tailored resumes ({len(tailored_resumes)})"):
+        if not tailored_resumes:
+            st.info("You haven't tailored a resume for a specific job yet.")
+        else:
+            resumes_dir = user_dir / "tailored_resumes"
+            for entry in tailored_resumes:
+                generated_on = entry["generated_at"][:10]
+                st.markdown(
+                    f"**{entry['title']}** — {entry['company']} ({entry['location']})  \n"
+                    f"Tailored on {generated_on}"
+                )
+                dl_col, changes_col = st.columns(2)
+                with dl_col:
+                    docx_path = resumes_dir / entry["docx_filename"]
+                    if docx_path.exists():
+                        st.download_button(
+                            "Download tailored resume (.docx)",
+                            data=docx_path.read_bytes(),
+                            file_name=entry["docx_filename"],
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"history_dl_{entry['id']}",
+                            use_container_width=True,
+                        )
+                with changes_col:
+                    changes_path = resumes_dir / entry["changes_filename"]
+                    if changes_path.exists():
+                        st.download_button(
+                            "Download changes summary (.txt)",
+                            data=changes_path.read_bytes(),
+                            file_name=entry["changes_filename"],
+                            mime="text/plain",
+                            key=f"history_changes_{entry['id']}",
+                            use_container_width=True,
+                        )
+                st.markdown("---")
 
     postings = st.session_state.get("postings", [])
 
@@ -482,7 +543,10 @@ else:
                     try:
                         with st.spinner(f"Researching {job['company']}..."):
                             research = _run_with_retry(
-                                research_company, job["company"], st.session_state.get("role", role)
+                                research_company,
+                                job["company"],
+                                st.session_state.get("role", role),
+                                user_tier,
                             )
                     except Exception as e:
                         error = f"Company research failed: {e}"
@@ -491,7 +555,7 @@ else:
                         try:
                             with st.spinner("✨ Magic is happening, please wait..."):
                                 tailored = _run_with_retry(
-                                    tailor_resume_for_job, job, research, resume_path
+                                    tailor_resume_for_job, job, research, resume_path, user_tier
                                 )
                         except FileNotFoundError as e:
                             error = str(e)
@@ -504,6 +568,9 @@ else:
                                 resume_path, tailored.tailored_paragraphs
                             )
                             record_cv_generated(username, "tailored")
+                            save_tailored_resume(
+                                user_dir, job, tailored.changes_summary, docx_bytes
+                            )
                         except Exception as e:
                             error = f"Building the tailored resume failed: {e}"
 
