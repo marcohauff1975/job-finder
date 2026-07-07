@@ -123,14 +123,18 @@ with open(CONFIG_DIR / "ux_guidelines.md", "r") as f:
     UX_GUIDELINES = f.read()
 
 # --- LLM (same Claude setup as job_search.py) --------------------------
+# All 5 agents run on the cheap model for now - Marco plans to move
+# specific ones (likely code_reviewer/ux_reviewer, which need more
+# judgment) back to claude_high later.
 
-claude = LLM(model="anthropic/claude-sonnet-5")
+claude_small = LLM(model="anthropic/claude-haiku-4-5-20251001")
+claude_high = LLM(model="anthropic/claude-sonnet-5")
 
 # --- Code Reviewer: agent + task + crew --------------------------------
 
 code_reviewer = Agent(
     config=agents_config["code_reviewer"],
-    llm=claude,
+    llm=claude_small,
     verbose=True,
 )
 
@@ -151,7 +155,7 @@ code_review_crew = Crew(
 
 local_tester = Agent(
     config=agents_config["local_tester"],
-    llm=claude,
+    llm=claude_small,
     verbose=True,
 )
 
@@ -185,7 +189,7 @@ performance_test_crew = Crew(
 
 ux_reviewer = Agent(
     config=agents_config["ux_reviewer"],
-    llm=claude,
+    llm=claude_small,
     tools=[UXPageInspectorTool()],
     verbose=True,
 )
@@ -207,7 +211,7 @@ ux_review_crew = Crew(
 
 prod_tester = Agent(
     config=agents_config["prod_tester"],
-    llm=claude,
+    llm=claude_small,
     tools=[ProdHealthCheckTool()],
     verbose=True,
 )
@@ -229,7 +233,7 @@ prod_test_crew = Crew(
 
 rollback_agent = Agent(
     config=agents_config["rollback_agent"],
-    llm=claude,
+    llm=claude_small,
     tools=[ProdRollbackTool()],
     verbose=True,
 )
