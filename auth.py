@@ -300,7 +300,17 @@ class AuthManager:
             except Exception as e:
                 st.error(str(e))
 
-            if st.session_state.get("authentication_status") is False:
+            if st.session_state.get("authentication_status"):
+                # streamlit-authenticator only auto-reruns after a
+                # successful login when credentials were loaded from a
+                # file path (self.path truthy) - this app passes
+                # credentials as a dict loaded from SQLite instead, so
+                # that path never fires. Without an explicit rerun here,
+                # the page would keep showing the stale login form until
+                # some unrelated interaction happened to trigger one.
+                self.save()
+                st.rerun()
+            elif st.session_state.get("authentication_status") is False:
                 st.error("Email or password is incorrect.")
             elif st.session_state.get("authentication_status") is None:
                 st.info("Enter your email and password, or switch to Register if you're new.")

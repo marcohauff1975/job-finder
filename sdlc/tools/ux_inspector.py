@@ -142,7 +142,15 @@ def _login_or_register(page) -> None:
     if not _wait_for_text(page, "Registration successful"):
         raise RuntimeError("Registration did not confirm success within the timeout.")
 
-    page.get_by_text("Login", exact=True).click()
+    # A full reload (rather than just clicking the Login tab in-page)
+    # before logging in - confirmed by direct testing that logging in
+    # immediately after registering, without a reload, unreliably fails
+    # to commit the typed field values to server-side state in time,
+    # regardless of added blur/type-delay/wait workarounds. A real user
+    # clicking "Login" in their own browser isn't affected by this -
+    # it's specific to how this automation fills/submits the form -
+    # but reloading here is a simple, reliable way to sidestep it.
+    page.reload(wait_until="networkidle", timeout=30000)
     page.get_by_label("Email").wait_for(state="visible", timeout=STATE_CHANGE_TIMEOUT_MS)
     page.get_by_label("Email").fill(TEST_EMAIL)
     page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
@@ -208,7 +216,23 @@ class UXPageInspectorTool(BaseTool):
         result = {"view": view, "base_url": base_url}
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch()
+                # Disables Chromium's own password-manager/autofill
+                # heuristics - without this, filling an email-shaped
+                # value into the "Email" field next to a password field
+                # gets silently cleared by Chromium itself a moment
+                # after the password field is filled (confirmed: only
+                # happens for email-shaped values, never for plain
+                # strings, and with no corresponding Streamlit rerun -
+                # a browser-side artifact of automated filling, not a
+                # real bug a human typing normally would ever hit).
+                browser = p.chromium.launch(
+                    args=[
+                        "--disable-features=AutofillServerCommunication,"
+                        "PasswordManagerOnboarding,AutofillEnableAccountWalletStorage,"
+                        "PasswordLeakDetection",
+                        "--disable-save-password-bubble",
+                    ]
+                )
                 page = browser.new_page(viewport={"width": 1280, "height": 900})
                 try:
                     page.goto(base_url, wait_until="networkidle", timeout=30000)
