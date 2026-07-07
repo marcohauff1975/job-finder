@@ -56,6 +56,7 @@ from job_search import (
     save_tailored_resume,
     tailor_resume_for_job,
 )
+from ai_viewer import render_sidebar_toggle, setup_layout
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
 
@@ -333,20 +334,24 @@ st.markdown(
 
     /* Keep the "Prepare download" buttons aligned across the resume
        format columns, regardless of how many lines each description
-       wraps to. */
-    div[data-testid="stHorizontalBlock"] {
+       wraps to. Scoped to .st-key-format_picker_columns only - this
+       used to be a bare div[data-testid="stHorizontalBlock"] selector,
+       which also caught every other use of st.columns() in the app
+       (e.g. pushed the AI viewer's "Clear log" button to the bottom
+       of its column against the much taller main column). */
+    .st-key-format_picker_columns div[data-testid="stHorizontalBlock"] {
         align-items: stretch;
     }
-    div[data-testid="stHorizontalBlock"] > div {
+    .st-key-format_picker_columns div[data-testid="stHorizontalBlock"] > div {
         display: flex;
         flex-direction: column;
     }
-    div[data-testid="stHorizontalBlock"] > div > div {
+    .st-key-format_picker_columns div[data-testid="stHorizontalBlock"] > div > div {
         display: flex;
         flex-direction: column;
         flex: 1;
     }
-    div[data-testid="stHorizontalBlock"] > div > div > div:has(.stButton) {
+    .st-key-format_picker_columns div[data-testid="stHorizontalBlock"] > div > div > div:has(.stButton) {
         margin-top: auto;
     }
     </style>
@@ -370,332 +375,338 @@ resume_path = user_dir / "resume.docx"
 resume_name_path = user_dir / "resume_original_name.txt"
 history_dir = user_dir / "history"
 
-if not resume_path.exists():
-    st.subheader("Upload your resume")
-    st.write("Upload a .docx or .pdf resume - this is what will be tailored for each job you search.")
-    uploaded = st.file_uploader("Resume (.docx or .pdf)", type=["docx", "pdf"])
-    if uploaded is not None:
-        save_resume_upload(uploaded.name, uploaded.getvalue(), resume_path)
-        resume_name_path.write_text(uploaded.name)
-        st.success("Resume uploaded.")
-        st.rerun()
-    st.stop()
 
-resume_display_name = (
-    resume_name_path.read_text().strip() if resume_name_path.exists() else resume_path.name
-)
+render_sidebar_toggle()
+main_col = setup_layout()
 
-with st.expander(f"Resume on file: {resume_display_name} (click to replace)"):
-    replacement = st.file_uploader(
-        "Upload a new resume (.docx or .pdf)", type=["docx", "pdf"], key="replace_resume"
+with main_col:
+    if not resume_path.exists():
+        st.subheader("Upload your resume")
+        st.write("Upload a .docx or .pdf resume - this is what will be tailored for each job you search.")
+        uploaded = st.file_uploader("Resume (.docx or .pdf)", type=["docx", "pdf"])
+        if uploaded is not None:
+            save_resume_upload(uploaded.name, uploaded.getvalue(), resume_path)
+            resume_name_path.write_text(uploaded.name)
+            st.success("Resume uploaded.")
+            st.rerun()
+        st.stop()
+
+    resume_display_name = (
+        resume_name_path.read_text().strip() if resume_name_path.exists() else resume_path.name
     )
-    if replacement is not None:
-        save_resume_upload(replacement.name, replacement.getvalue(), resume_path)
-        resume_name_path.write_text(replacement.name)
-        # The old review/extracted content no longer matches this file,
-        # so drop anything cached from the previous resume.
-        st.session_state.pop("resume_review", None)
-        st.session_state.pop("resume_content", None)
-        for key in FORMAT_TEMPLATES:
-            st.session_state.pop(f"fmt_bytes_{key}", None)
-        st.success("Resume replaced.")
-        st.rerun()
 
-st.session_state.setdefault("view", "main")
-
-if st.session_state["view"] == "format":
-    if st.button("← Back"):
-        st.session_state["view"] = "main"
-        st.rerun()
-
-    st.markdown("### Change resume format")
-    st.write("Pick a layout to rebuild and download your resume in.")
-
-    format_cols = st.columns(len(FORMAT_TEMPLATES))
-    for col, (template_key, meta) in zip(format_cols, FORMAT_TEMPLATES.items()):
-        with col:
-            preview_path = FORMAT_PREVIEWS_DIR / f"{template_key}.jpg"
-            if preview_path.exists():
-                st.image(str(preview_path), use_container_width=True)
-            st.markdown(f"**{meta['label']}**")
-            st.caption(meta["description"])
-
-            if st.button("Prepare download", key=f"fmt_prep_{template_key}"):
-                with st.spinner("✨ Magic is happening, please wait..."):
-                    content = st.session_state.get("resume_content")
-                    if content is None:
-                        content = extract_resume_content(resume_path)
-                        st.session_state["resume_content"] = content
-                    if content is not None:
-                        st.session_state[f"fmt_bytes_{template_key}"] = render_resume_in_format(
-                            content, template_key
-                        )
-                        record_cv_generated(username, "format")
-                    else:
-                        st.error("Couldn't extract your resume's content. Try again.")
-
-            format_bytes = st.session_state.get(f"fmt_bytes_{template_key}")
-            if format_bytes:
-                st.download_button(
-                    "Download",
-                    data=format_bytes,
-                    file_name=f"{_slugify(username)}_{template_key}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    key=f"fmt_dl_{template_key}",
-                    use_container_width=True,
-                )
-                if st.button(
-                    "Upload",
-                    key=f"fmt_use_{template_key}",
-                    use_container_width=True,
-                ):
-                    resume_path.write_bytes(format_bytes)
-                    resume_name_path.write_text(f"{meta['label']}.docx")
-                    st.session_state.pop("resume_review", None)
-                    st.session_state.pop("resume_content", None)
-                    for key in FORMAT_TEMPLATES:
-                        st.session_state.pop(f"fmt_bytes_{key}", None)
-                    st.session_state["view"] = "main"
-                    st.success(f"Saved - {meta['label']} is now your resume on file.")
-                    st.rerun()
-
-else:
-    st.markdown("### Review your resume (Optional)")
-    st.write("Get honest, general feedback on your resume - not tied to any specific job.")
-
-    review_col, format_col = st.columns(2)
-    with review_col:
-        if st.button("Review my resume", use_container_width=True):
-            with st.spinner("✨ Magic is happening, please wait..."):
-                st.session_state["resume_review"] = review_resume(resume_path)
-    with format_col:
-        if st.button("Change resume format", use_container_width=True):
-            st.session_state["view"] = "format"
+    with st.expander(f"Resume on file: {resume_display_name} (click to replace)"):
+        replacement = st.file_uploader(
+            "Upload a new resume (.docx or .pdf)", type=["docx", "pdf"], key="replace_resume"
+        )
+        if replacement is not None:
+            save_resume_upload(replacement.name, replacement.getvalue(), resume_path)
+            resume_name_path.write_text(replacement.name)
+            # The old review/extracted content no longer matches this file,
+            # so drop anything cached from the previous resume.
+            st.session_state.pop("resume_review", None)
+            st.session_state.pop("resume_content", None)
+            for key in FORMAT_TEMPLATES:
+                st.session_state.pop(f"fmt_bytes_{key}", None)
+            st.success("Resume replaced.")
             st.rerun()
 
-    review = st.session_state.get("resume_review")
-    if review is not None:
-        with st.expander("Resume review", expanded=True):
-            if review.strengths:
-                st.markdown("**Strengths**")
-                for item in review.strengths:
-                    st.markdown(f"- {item}")
-            if review.weaknesses:
-                st.markdown("**Weaknesses**")
-                for item in review.weaknesses:
-                    st.markdown(f"- {item}")
-            if review.suggestions:
-                st.markdown("**Suggestions**")
-                for item in review.suggestions:
-                    st.markdown(f"- {item}")
+    st.session_state.setdefault("view", "main")
 
-    st.markdown("### Search for jobs")
-    last_search = _load_last_search(user_dir)
-    role = st.text_input("Role", value=last_search["role"], placeholder="e.g. CTO")
-    location = st.text_input(
-        "Location", value=last_search["location"], placeholder="e.g. Amsterdam, Netherlands"
-    )
-    remote = st.checkbox("Open to fully remote roles", value=last_search["remote"])
+    if st.session_state["view"] == "format":
+        if st.button("← Back"):
+            st.session_state["view"] = "main"
+            st.rerun()
 
-    if st.button("Search for jobs"):
-        if not role.strip() or not location.strip():
-            st.error("Please fill in both Role and Location before searching.")
-        else:
-            allowed, _ = _check_daily_quota(user_dir / "usage.json", DAILY_SEARCH_LIMIT)
-            if not allowed:
-                st.error(
-                    f"Free tier is limited to {DAILY_SEARCH_LIMIT} searches a day. "
-                    "Contact support for the paid version: marco.hauff@gmail.com"
-                )
-            else:
-                missing = [
-                    key for key in ("ANTHROPIC_API_KEY", "SERPER_API_KEY")
-                    if not os.getenv(key)
-                ]
-                if missing:
-                    st.error(
-                        f"Missing environment variable(s): {', '.join(missing)}. "
-                        "Add them to your .env file."
-                    )
-                else:
-                    with st.spinner("✨ Magic is happening, please wait..."):
-                        postings = find_jobs(role, location, remote, history_dir, user_tier)
-                    _increment_daily_quota(user_dir / "usage.json")
-                    _save_last_search(user_dir, role, location, remote)
-                    st.session_state["postings"] = postings
-                    st.session_state["role"] = role
+        st.markdown("### Change resume format")
+        st.write("Pick a layout to rebuild and download your resume in.")
 
-    tailored_resumes = load_tailored_resumes(user_dir)
-    with st.expander(f"Tailored resumes ({len(tailored_resumes)})"):
-        if not tailored_resumes:
-            st.info("You haven't tailored a resume for a specific job yet.")
-        else:
-            resumes_dir = user_dir / "tailored_resumes"
-            for entry in tailored_resumes:
-                generated_on = entry["generated_at"][:10]
-                st.markdown(
-                    f"**{entry['title']}** — {entry['company']} ({entry['location']})  \n"
-                    f"Tailored on {generated_on}"
-                )
-                dl_col, changes_col = st.columns(2)
-                with dl_col:
-                    docx_path = resumes_dir / entry["docx_filename"]
-                    if docx_path.exists():
+        with st.container(key="format_picker_columns"):
+            format_cols = st.columns(len(FORMAT_TEMPLATES))
+            for col, (template_key, meta) in zip(format_cols, FORMAT_TEMPLATES.items()):
+                with col:
+                    preview_path = FORMAT_PREVIEWS_DIR / f"{template_key}.jpg"
+                    if preview_path.exists():
+                        st.image(str(preview_path), use_container_width=True)
+                    st.markdown(f"**{meta['label']}**")
+                    st.caption(meta["description"])
+
+                    if st.button("Prepare download", key=f"fmt_prep_{template_key}"):
+                        with st.spinner("✨ Magic is happening, please wait..."):
+                            content = st.session_state.get("resume_content")
+                            if content is None:
+                                content = extract_resume_content(resume_path)
+                                st.session_state["resume_content"] = content
+                            if content is not None:
+                                st.session_state[f"fmt_bytes_{template_key}"] = render_resume_in_format(
+                                    content, template_key
+                                )
+                                record_cv_generated(username, "format")
+                            else:
+                                st.error("Couldn't extract your resume's content. Try again.")
+
+                    format_bytes = st.session_state.get(f"fmt_bytes_{template_key}")
+                    if format_bytes:
                         st.download_button(
-                            "Download tailored resume (.docx)",
-                            data=docx_path.read_bytes(),
-                            file_name=entry["docx_filename"],
+                            "Download",
+                            data=format_bytes,
+                            file_name=f"{_slugify(username)}_{template_key}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key=f"history_dl_{entry['id']}",
+                            key=f"fmt_dl_{template_key}",
                             use_container_width=True,
                         )
-                with changes_col:
-                    changes_path = resumes_dir / entry["changes_filename"]
-                    if changes_path.exists():
-                        st.download_button(
-                            "Download changes summary (.txt)",
-                            data=changes_path.read_bytes(),
-                            file_name=entry["changes_filename"],
-                            mime="text/plain",
-                            key=f"history_changes_{entry['id']}",
+                        if st.button(
+                            "Upload",
+                            key=f"fmt_use_{template_key}",
                             use_container_width=True,
-                        )
-                st.markdown("---")
+                        ):
+                            resume_path.write_bytes(format_bytes)
+                            resume_name_path.write_text(f"{meta['label']}.docx")
+                            st.session_state.pop("resume_review", None)
+                            st.session_state.pop("resume_content", None)
+                            for key in FORMAT_TEMPLATES:
+                                st.session_state.pop(f"fmt_bytes_{key}", None)
+                            st.session_state["view"] = "main"
+                            st.success(f"Saved - {meta['label']} is now your resume on file.")
+                            st.rerun()
 
-    postings = st.session_state.get("postings", [])
+    else:
+        st.markdown("### Review your resume (Optional)")
+        st.write("Get honest, general feedback on your resume - not tied to any specific job.")
 
-    if "job_results" not in st.session_state:
-        st.session_state["job_results"] = {}
+        review_col, format_col = st.columns(2)
+        with review_col:
+            if st.button("Review my resume", use_container_width=True):
+                with st.spinner("✨ Magic is happening, please wait..."):
+                    st.session_state["resume_review"] = review_resume(resume_path)
+        with format_col:
+            if st.button("Change resume format", use_container_width=True):
+                st.session_state["view"] = "format"
+                st.rerun()
 
-    if postings:
-        st.markdown(f"### Found {len(postings)} role(s)")
+        review = st.session_state.get("resume_review")
+        if review is not None:
+            with st.expander("Resume review", expanded=True):
+                if review.strengths:
+                    st.markdown("**Strengths**")
+                    for item in review.strengths:
+                        st.markdown(f"- {item}")
+                if review.weaknesses:
+                    st.markdown("**Weaknesses**")
+                    for item in review.weaknesses:
+                        st.markdown(f"- {item}")
+                if review.suggestions:
+                    st.markdown("**Suggestions**")
+                    for item in review.suggestions:
+                        st.markdown(f"- {item}")
 
-        for i, job in enumerate(postings):
-            job_key = job["link"] or f"{job['title']}|{job['company']}"
+        st.markdown("### Search for jobs")
+        last_search = _load_last_search(user_dir)
+        role = st.text_input("Role", value=last_search["role"], placeholder="e.g. CTO")
+        location = st.text_input(
+            "Location", value=last_search["location"], placeholder="e.g. Amsterdam, Netherlands"
+        )
+        remote = st.checkbox("Open to fully remote roles", value=last_search["remote"])
 
-            badge = "  🆕 **NEW**" if job["is_new"] else ""
-            salary_line = f"  \n💰 {job['salary']}" if job["salary"] else ""
-            st.markdown(
-                f"**{job['title']}** — {job['company']} ({job['location']}){badge}"
-                f"{salary_line}  \n[View posting]({job['link']})"
-            )
-
-            if st.button("Do Market Research and Update Resume", key=f"research_btn_{i}"):
-                research_usage_path = user_dir / "research_usage.json"
-                allowed = username == UNLIMITED_USER or _check_daily_quota(
-                    research_usage_path, DAILY_RESEARCH_LIMIT
-                )[0]
+        if st.button("Search for jobs"):
+            if not role.strip() or not location.strip():
+                st.error("Please fill in both Role and Location before searching.")
+            else:
+                allowed, _ = _check_daily_quota(user_dir / "usage.json", DAILY_SEARCH_LIMIT)
                 if not allowed:
                     st.error(
-                        f"Free tier is limited to {DAILY_RESEARCH_LIMIT} resume "
-                        "tailoring run(s) a day. Contact marco.hauff@gmail.com to "
-                        "increase your frequency, or ask about the paid subscription."
+                        f"Free tier is limited to {DAILY_SEARCH_LIMIT} searches a day. "
+                        "Contact support for the paid version: marco.hauff@gmail.com"
                     )
                 else:
-                    if username != UNLIMITED_USER:
-                        _increment_daily_quota(research_usage_path)
-
-                    research = None
-                    tailored = None
-                    docx_bytes = None
-                    error = None
-
-                    try:
-                        with st.spinner(f"Researching {job['company']}..."):
-                            research = _run_with_retry(
-                                research_company,
-                                job["company"],
-                                st.session_state.get("role", role),
-                                user_tier,
-                            )
-                    except Exception as e:
-                        error = f"Company research failed: {e}"
-
-                    if research is not None and error is None:
-                        try:
-                            with st.spinner("✨ Magic is happening, please wait..."):
-                                tailored = _run_with_retry(
-                                    tailor_resume_for_job, job, research, resume_path, user_tier
-                                )
-                        except FileNotFoundError as e:
-                            error = str(e)
-                        except Exception as e:
-                            error = f"Resume tailoring failed: {e}"
-
-                    if tailored is not None and error is None:
-                        try:
-                            docx_bytes = build_tailored_docx_bytes(
-                                resume_path, tailored.tailored_paragraphs
-                            )
-                            record_cv_generated(username, "tailored")
-                            save_tailored_resume(
-                                user_dir, job, tailored.changes_summary, docx_bytes
-                            )
-                        except Exception as e:
-                            error = f"Building the tailored resume failed: {e}"
-
-                    st.session_state["job_results"][job_key] = {
-                        "research": research,
-                        "tailored": tailored,
-                        "docx_bytes": docx_bytes,
-                        "error": error,
-                    }
-
-            result = st.session_state["job_results"].get(job_key)
-            if result:
-                with st.expander(f"Market research & tailored resume — {job['company']}", expanded=True):
-                    if result["error"]:
-                        st.error(result["error"])
-
-                    research = result["research"]
-                    if research is None:
-                        st.warning("No structured research result returned.")
+                    missing = [
+                        key for key in ("ANTHROPIC_API_KEY", "SERPER_API_KEY")
+                        if not os.getenv(key)
+                    ]
+                    if missing:
+                        st.error(
+                            f"Missing environment variable(s): {', '.join(missing)}. "
+                            "Add them to your .env file."
+                        )
                     else:
-                        st.markdown(f"**Overview:** {research.overview}")
-                        if research.size:
-                            st.markdown(f"**Size:** {research.size}")
-                        if research.funding:
-                            st.markdown(f"**Funding:** {research.funding}")
-                        if research.reputation:
-                            st.markdown(f"**Reputation:** {research.reputation}")
-                        if research.other_open_roles:
-                            st.markdown(f"**Other open roles:** {research.other_open_roles}")
-                        if research.tech_stack:
-                            st.markdown(f"**Tech stack:** {research.tech_stack}")
-                        if research.recent_news:
-                            st.markdown(f"**Recent news:** {research.recent_news}")
+                        with st.spinner("✨ Magic is happening, please wait..."):
+                            postings = find_jobs(role, location, remote, history_dir, user_tier)
+                        _increment_daily_quota(user_dir / "usage.json")
+                        _save_last_search(user_dir, role, location, remote)
+                        st.session_state["postings"] = postings
+                        st.session_state["role"] = role
 
-                    tailored = result["tailored"]
-                    if tailored is not None:
-                        st.markdown("---")
-                        st.markdown("**What was changed:**")
-                        st.markdown(tailored.changes_summary)
-                        with st.expander("View tailored resume text"):
-                            st.text("\n".join(tailored.tailored_paragraphs))
-
-                        if result["docx_bytes"]:
+        tailored_resumes = load_tailored_resumes(user_dir)
+        with st.expander(f"Tailored resumes ({len(tailored_resumes)})"):
+            if not tailored_resumes:
+                st.info("You haven't tailored a resume for a specific job yet.")
+            else:
+                resumes_dir = user_dir / "tailored_resumes"
+                for entry in tailored_resumes:
+                    generated_on = entry["generated_at"][:10]
+                    st.markdown(
+                        f"**{entry['title']}** — {entry['company']} ({entry['location']})  \n"
+                        f"Tailored on {generated_on}"
+                    )
+                    dl_col, changes_col = st.columns(2)
+                    with dl_col:
+                        docx_path = resumes_dir / entry["docx_filename"]
+                        if docx_path.exists():
                             st.download_button(
                                 "Download tailored resume (.docx)",
-                                data=result["docx_bytes"],
-                                file_name=f"{_slugify(job['company'])}_tailored_resume.docx",
+                                data=docx_path.read_bytes(),
+                                file_name=entry["docx_filename"],
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                key=f"download_{i}",
+                                key=f"history_dl_{entry['id']}",
+                                use_container_width=True,
                             )
+                    with changes_col:
+                        changes_path = resumes_dir / entry["changes_filename"]
+                        if changes_path.exists():
                             st.download_button(
                                 "Download changes summary (.txt)",
-                                data=tailored.changes_summary,
-                                file_name=f"{_slugify(job['company'])}_changes.txt",
+                                data=changes_path.read_bytes(),
+                                file_name=entry["changes_filename"],
                                 mime="text/plain",
-                                key=f"download_changes_{i}",
+                                key=f"history_changes_{entry['id']}",
+                                use_container_width=True,
                             )
+                    st.markdown("---")
 
-            st.markdown("---")
+        postings = st.session_state.get("postings", [])
 
-    elif "postings" in st.session_state:
-        st.info("No postings found for this search.")
+        if "job_results" not in st.session_state:
+            st.session_state["job_results"] = {}
 
-    st.markdown(
-        f'<p style="color:#64748b; font-size:0.8rem; text-align:center; margin-top:2rem;">'
-        f"v{APP_VERSION}</p>",
-        unsafe_allow_html=True,
-    )
+        if postings:
+            st.markdown(f"### Found {len(postings)} role(s)")
+
+            for i, job in enumerate(postings):
+                job_key = job["link"] or f"{job['title']}|{job['company']}"
+
+                badge = "  🆕 **NEW**" if job["is_new"] else ""
+                salary_line = f"  \n💰 {job['salary']}" if job["salary"] else ""
+                st.markdown(
+                    f"**{job['title']}** — {job['company']} ({job['location']}){badge}"
+                    f"{salary_line}  \n[View posting]({job['link']})"
+                )
+
+                if st.button("Do Market Research and Update Resume", key=f"research_btn_{i}"):
+                    research_usage_path = user_dir / "research_usage.json"
+                    allowed = username == UNLIMITED_USER or _check_daily_quota(
+                        research_usage_path, DAILY_RESEARCH_LIMIT
+                    )[0]
+                    if not allowed:
+                        st.error(
+                            f"Free tier is limited to {DAILY_RESEARCH_LIMIT} resume "
+                            "tailoring run(s) a day. Contact marco.hauff@gmail.com to "
+                            "increase your frequency, or ask about the paid subscription."
+                        )
+                    else:
+                        if username != UNLIMITED_USER:
+                            _increment_daily_quota(research_usage_path)
+
+                        research = None
+                        tailored = None
+                        docx_bytes = None
+                        error = None
+
+                        try:
+                            with st.spinner(f"Researching {job['company']}..."):
+                                research = _run_with_retry(
+                                    research_company,
+                                    job["company"],
+                                    st.session_state.get("role", role),
+                                    user_tier,
+                                )
+                        except Exception as e:
+                            error = f"Company research failed: {e}"
+
+                        if research is not None and error is None:
+                            try:
+                                with st.spinner("✨ Magic is happening, please wait..."):
+                                    tailored = _run_with_retry(
+                                        tailor_resume_for_job, job, research, resume_path, user_tier
+                                    )
+                            except FileNotFoundError as e:
+                                error = str(e)
+                            except Exception as e:
+                                error = f"Resume tailoring failed: {e}"
+
+                        if tailored is not None and error is None:
+                            try:
+                                docx_bytes = build_tailored_docx_bytes(
+                                    resume_path, tailored.tailored_paragraphs
+                                )
+                                record_cv_generated(username, "tailored")
+                                save_tailored_resume(
+                                    user_dir, job, tailored.changes_summary, docx_bytes
+                                )
+                            except Exception as e:
+                                error = f"Building the tailored resume failed: {e}"
+
+                        st.session_state["job_results"][job_key] = {
+                            "research": research,
+                            "tailored": tailored,
+                            "docx_bytes": docx_bytes,
+                            "error": error,
+                        }
+
+                result = st.session_state["job_results"].get(job_key)
+                if result:
+                    with st.expander(f"Market research & tailored resume — {job['company']}", expanded=True):
+                        if result["error"]:
+                            st.error(result["error"])
+
+                        research = result["research"]
+                        if research is None:
+                            st.warning("No structured research result returned.")
+                        else:
+                            st.markdown(f"**Overview:** {research.overview}")
+                            if research.size:
+                                st.markdown(f"**Size:** {research.size}")
+                            if research.funding:
+                                st.markdown(f"**Funding:** {research.funding}")
+                            if research.reputation:
+                                st.markdown(f"**Reputation:** {research.reputation}")
+                            if research.other_open_roles:
+                                st.markdown(f"**Other open roles:** {research.other_open_roles}")
+                            if research.tech_stack:
+                                st.markdown(f"**Tech stack:** {research.tech_stack}")
+                            if research.recent_news:
+                                st.markdown(f"**Recent news:** {research.recent_news}")
+
+                        tailored = result["tailored"]
+                        if tailored is not None:
+                            st.markdown("---")
+                            st.markdown("**What was changed:**")
+                            st.markdown(tailored.changes_summary)
+                            with st.expander("View tailored resume text"):
+                                st.text("\n".join(tailored.tailored_paragraphs))
+
+                            if result["docx_bytes"]:
+                                st.download_button(
+                                    "Download tailored resume (.docx)",
+                                    data=result["docx_bytes"],
+                                    file_name=f"{_slugify(job['company'])}_tailored_resume.docx",
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"download_{i}",
+                                )
+                                st.download_button(
+                                    "Download changes summary (.txt)",
+                                    data=tailored.changes_summary,
+                                    file_name=f"{_slugify(job['company'])}_changes.txt",
+                                    mime="text/plain",
+                                    key=f"download_changes_{i}",
+                                )
+
+                st.markdown("---")
+
+        elif "postings" in st.session_state:
+            st.info("No postings found for this search.")
+
+        st.markdown(
+            f'<p style="color:#64748b; font-size:0.8rem; text-align:center; margin-top:2rem;">'
+            f"v{APP_VERSION}</p>",
+            unsafe_allow_html=True,
+        )
