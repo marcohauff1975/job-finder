@@ -56,7 +56,22 @@ from job_search import (
     save_tailored_resume,
     tailor_resume_for_job,
 )
-from ai_viewer import render_sidebar_toggle, setup_layout
+from ai_viewer import render_live_activity_panel, render_sidebar_toggle, setup_layout
+from sdlc.SDLC import (
+    ArchitectureDirectionResult,
+    FeatureRequirementsResult,
+    build_feature,
+    challenge_requirement,
+)
+from sdlc.model_registry import (
+    AGENT_DISPLAY_NAMES,
+    MODEL_DISPLAY_NAMES,
+    RECOMMENDATIONS,
+    TECH_EXCELLENCE_AGENT_KEYS,
+    load_agent_models,
+    set_agent_model,
+)
+from sdlc.requirements_sessions import list_sessions, load_session, new_session_id, save_session
 from sdlc_agent_steps import get_agent_activity
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 from streamlit_autorefresh import st_autorefresh
@@ -182,6 +197,307 @@ def _run_with_retry(func, *args, retries=1, **kwargs):
     raise last_error
 
 
+def _format_pm_result(result) -> str:
+    """Renders a FeatureRequirementsResult (see sdlc/SDLC.py) as the
+    Product Manager's chat bubble content."""
+    lines = ["**Senior Product Manager**", "", f"**User story:** {result.user_story}"]
+    lines.append("")
+    lines.append("**Acceptance criteria:**")
+    for criterion in result.acceptance_criteria:
+        lines.append(f"- {criterion}")
+    if result.open_questions:
+        lines.append("")
+        lines.append("**Open questions:**")
+        for question in result.open_questions:
+            lines.append(f"- {question}")
+    return "\n".join(lines)
+
+
+def _format_architect_result(result) -> str:
+    """Renders an ArchitectureDirectionResult (see sdlc/SDLC.py) as the
+    Software Architect's chat bubble content."""
+    lines = ["**Senior Software Architect**", ""]
+    lines.append(
+        "Builds on the existing app as-is."
+        if result.builds_on_existing_app
+        else "Needs new infrastructure or a separate service."
+    )
+    if result.new_infrastructure_needed:
+        lines.append("")
+        lines.append("**New infrastructure needed:**")
+        for item in result.new_infrastructure_needed:
+            lines.append(f"- {item}")
+    if result.non_functional_requirements:
+        lines.append("")
+        lines.append("**Non-functional requirements:**")
+        for item in result.non_functional_requirements:
+            lines.append(f"- {item}")
+    lines.append("")
+    lines.append(f"**Technical notes:** {result.technical_notes}")
+    if result.clarifications_needed:
+        lines.append("")
+        lines.append("**Clarifications needed:**")
+        for item in result.clarifications_needed:
+            lines.append(f"- {item}")
+    return "\n".join(lines)
+
+
+def _format_engineer_result(result) -> str:
+    """Renders a FeatureBuildResult (see sdlc/SDLC.py) as the Software
+    Engineer's chat bubble content."""
+    lines = ["**Senior Software Engineer**", "", f"**Branch:** `{result.branch_name}`"]
+    if result.pr_url:
+        lines.append(f"**Pull request:** {result.pr_url}")
+    lines.append("")
+    lines.append(f"**Summary:** {result.summary}")
+    if result.files_changed:
+        lines.append("")
+        lines.append("**Files changed:**")
+        for path in result.files_changed:
+            lines.append(f"- `{path}`")
+    if result.questions_asked:
+        lines.append("")
+        lines.append("**Questions asked while building:**")
+        for question in result.questions_asked:
+            lines.append(f"- {question}")
+    return "\n".join(lines)
+
+
+def _latest_ready_pair(
+    messages: list[dict],
+) -> tuple[FeatureRequirementsResult, ArchitectureDirectionResult] | None:
+    """If the conversation's last two messages are a product_manager +
+    software_architect pair that both came back ready_for_development,
+    reconstructs and returns their structured results (for the "Push to
+    Software Engineer" button) - otherwise None. Requiring them to be
+    the literal last two messages means the button naturally disappears
+    once a newer message is appended after them, whether that's a fresh
+    user follow-up (superseding this verdict) or the engineer's own
+    build result (so the same requirements can't be pushed twice)."""
+    if len(messages) < 2:
+        return None
+    pm_message, architect_message = messages[-2], messages[-1]
+    if pm_message.get("role") != "product_manager" or architect_message.get("role") != "software_architect":
+        return None
+    pm_data, architect_data = pm_message.get("data"), architect_message.get("data")
+    if pm_data is None or architect_data is None:
+        return None
+    pm_result = FeatureRequirementsResult(**pm_data)
+    architect_result = ArchitectureDirectionResult(**architect_data)
+    if not (pm_result.ready_for_development and architect_result.ready_for_development):
+        return None
+    return pm_result, architect_result
+
+
+def _format_conversation_for_agents(messages: list[dict]) -> str:
+    """Turns the saved chat history into one text block for the
+    requirements-challenge crew's feature_request input - each turn is
+    labeled by speaker, so the agents see exactly what was already said
+    and can treat a later user message as a follow-up/answer rather
+    than a brand new unrelated request."""
+    speaker_labels = {
+        "user": "Marco",
+        "product_manager": "Product Manager",
+        "software_architect": "Software Architect",
+    }
+    parts = [
+        f"{speaker_labels.get(message['role'], message['role'])}: {message['content']}"
+        for message in messages
+    ]
+    return "\n\n".join(parts)
+
+
+def _render_requirements_challenge_page() -> None:
+    """Admin-only sub-page where Marco types a raw feature idea and gets
+    it challenged by the product_manager and software_architect agents
+    (sdlc/SDLC.py's challenge_requirement) - chat layout modeled on
+    Claude Code's own UI: message history on top, input pinned to the
+    bottom, sessions managed from the sidebar. Each session is a JSON
+    file under data/requirements_sessions/ (sdlc/requirements_sessions.py)."""
+    with st.sidebar:
+        st.markdown("### 💬 Request a New Feature")
+        if st.button("+ New session", key="rc_new_session", use_container_width=True):
+            st.session_state["rc_session_id"] = new_session_id()
+            st.session_state["rc_messages"] = []
+            st.rerun()
+        st.markdown("---")
+        st.caption("Recent sessions")
+        sessions = list_sessions()
+        if not sessions:
+            st.caption("No sessions yet.")
+        for session in sessions:
+            is_active = session["id"] == st.session_state.get("rc_session_id")
+            label = ("▶ " if is_active else "") + session["title"]
+            if st.button(label, key=f"rc_session_{session['id']}", use_container_width=True):
+                st.session_state["rc_session_id"] = session["id"]
+                loaded = load_session(session["id"])
+                st.session_state["rc_messages"] = loaded["messages"] if loaded else []
+                st.rerun()
+
+    st.markdown(
+        '<div class="hero-badge">✨ Powered by AI agents</div>'
+        '<div class="hero-title" style="font-size:1.8rem;">Request a New Feature</div>'
+        '<div class="hero-tagline">Describe a feature idea - the Senior Product Manager and '
+        "Senior Software Architect agents will challenge it before a line of code gets written."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    messages = st.session_state.get("rc_messages", [])
+    if not messages:
+        st.info("Describe a feature idea below to start a new challenge.")
+
+    avatars = {
+        "user": "🧑‍💼",
+        "product_manager": "📋",
+        "software_architect": "🏗️",
+        "software_engineer": "👷",
+    }
+    for message in messages:
+        role = "user" if message["role"] == "user" else "assistant"
+        with st.chat_message(role, avatar=avatars.get(message["role"])):
+            st.markdown(message["content"])
+
+    ready_pair = _latest_ready_pair(messages)
+    if ready_pair is not None:
+        st.success("Both agents have confirmed this is ready for development.")
+        if st.button("🚀 Push to Software Engineer", key="rc_push_to_engineer", type="primary"):
+            pm_result, architect_result = ready_pair
+            session_id = st.session_state["rc_session_id"]
+            build_result = None
+            error = None
+            st.session_state["ai_steps"] = []
+            try:
+                with st.spinner("👷 Software Engineer is building this feature..."):
+                    render_live_activity_panel()
+                    build_result = _run_with_retry(build_feature, pm_result, architect_result)
+            except Exception as e:
+                error = f"The build failed: {e}"
+
+            if error is not None or build_result is None:
+                messages.append(
+                    {
+                        "role": "software_engineer",
+                        "content": f"⚠️ {error or 'Something went wrong and no build result was produced.'}",
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "role": "software_engineer",
+                        "content": _format_engineer_result(build_result),
+                        "data": build_result.model_dump(),
+                    }
+                )
+
+            st.session_state["rc_messages"] = messages
+            save_session(session_id, messages)
+            st.rerun()
+
+    prompt = st.chat_input("Describe a feature, or answer the open questions above...")
+    if prompt:
+        if not st.session_state.get("rc_session_id"):
+            st.session_state["rc_session_id"] = new_session_id()
+        session_id = st.session_state["rc_session_id"]
+
+        messages = st.session_state.get("rc_messages", [])
+        messages.append({"role": "user", "content": prompt})
+        st.session_state["rc_messages"] = messages
+        save_session(session_id, messages)
+
+        result = None
+        error = None
+        st.session_state["ai_steps"] = []
+        try:
+            with st.spinner("✨ Magic is happening, please wait..."):
+                render_live_activity_panel()
+                result = _run_with_retry(
+                    challenge_requirement, _format_conversation_for_agents(messages)
+                )
+        except Exception as e:
+            error = f"The requirements challenge failed: {e}"
+
+        if error is not None or result is None:
+            messages.append(
+                {
+                    "role": "product_manager",
+                    "content": f"⚠️ {error or 'Something went wrong and no response was produced.'} "
+                    "Try rephrasing or resubmitting.",
+                }
+            )
+        else:
+            pm_result, architect_result = result
+            messages.append(
+                {
+                    "role": "product_manager",
+                    "content": _format_pm_result(pm_result),
+                    "data": pm_result.model_dump(),
+                }
+            )
+            messages.append(
+                {
+                    "role": "software_architect",
+                    "content": _format_architect_result(architect_result),
+                    "data": architect_result.model_dump(),
+                }
+            )
+
+        st.session_state["rc_messages"] = messages
+        save_session(session_id, messages)
+        st.rerun()
+
+
+def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> None:
+    """Renders one editable Agent/Current/Recommended/Why/New-model table
+    for the given agent_keys (see AGENT_DISPLAY_NAMES in
+    sdlc/model_registry.py) on the admin "AI Models" tab, with its own
+    save button. widget_key_prefix keeps this group's Streamlit widget
+    keys distinct from any other group rendered on the same page."""
+    current_models = load_agent_models()
+    display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
+
+    rows = []
+    for agent_key in agent_keys:
+        recommended_id, rationale = RECOMMENDATIONS[agent_key]
+        current_label = MODEL_DISPLAY_NAMES[current_models[agent_key]]
+        rows.append(
+            {
+                "Agent": AGENT_DISPLAY_NAMES[agent_key],
+                "Current model": current_label,
+                "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
+                "New model": current_label,
+                "Why": rationale,
+            }
+        )
+
+    edited_rows = st.data_editor(
+        rows,
+        column_config={
+            "Why": st.column_config.TextColumn(width="large"),
+            "New model": st.column_config.SelectboxColumn(
+                options=list(MODEL_DISPLAY_NAMES.values()), required=True
+            ),
+        },
+        disabled=["Agent", "Current model", "Recommended", "Why"],
+        use_container_width=True,
+        hide_index=True,
+        key=f"{widget_key_prefix}_editor",
+    )
+
+    if st.button("Save model changes", key=f"{widget_key_prefix}_save"):
+        changed = 0
+        for agent_key, edited in zip(agent_keys, edited_rows):
+            new_model_id = display_to_model_id[edited["New model"]]
+            if new_model_id != current_models[agent_key]:
+                set_agent_model(agent_key, new_model_id)
+                changed += 1
+        if changed:
+            st.success(f"Updated {changed} agent(s) - takes effect immediately, no restart needed.")
+            st.rerun()
+        else:
+            st.info("No changes to save.")
+
+
 st.set_page_config(
     page_title="Job Finder — AI-Powered Job Search",
     page_icon="✨",
@@ -233,7 +549,12 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
-        tab_overview, tab_sdlc = st.tabs(["Overview", "SDLC Pipeline"])
+        tab_overview, tab_sdlc, tab_requirements, tab_models = st.tabs(
+            ["Overview", "SDLC Pipeline", "Request a New Feature", "AI Models"]
+        )
+
+        with tab_requirements:
+            _render_requirements_challenge_page()
 
         with tab_overview:
             report = get_report()
@@ -389,6 +710,35 @@ if st.query_params.get("admin") is not None:
                         with st.expander("Agent trace"):
                             st.code(run["trace"], language=None)
                     st.markdown("---")
+
+        with tab_models:
+            st.caption(
+                "Every SDLC agent's currently assigned Claude model, a "
+                "recommendation for best performance based on that "
+                "agent's actual stakes and judgment load (see "
+                "sdlc/model_registry.py), and a control to change it. "
+                "Changes apply immediately to this running app and are "
+                "saved so they survive the next restart."
+            )
+
+            app_agent_keys = [
+                key for key in AGENT_DISPLAY_NAMES if key not in TECH_EXCELLENCE_AGENT_KEYS
+            ]
+
+            st.markdown("#### SDLC pipeline agents")
+            st.caption("Called by this app itself, as part of its own SDLC pipeline.")
+            _render_agent_model_table(app_agent_keys, "app_agents")
+
+            st.divider()
+
+            st.markdown("#### Technology Excellence panel")
+            st.caption(
+                "Only ever invoked from a Claude Code session running the "
+                "pre-publish readiness review (sdlc/SDLC.py's "
+                "technology_excellence_crew) - never called by this "
+                "deployed app itself."
+            )
+            _render_agent_model_table(TECH_EXCELLENCE_AGENT_KEYS, "tech_excellence_agents")
     st.stop()
 
 st.markdown(

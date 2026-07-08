@@ -39,6 +39,8 @@ from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
+from sdlc.model_registry import load_agent_models
+
 # Makes `sdlc.tools...` importable whether this file is run directly
 # (python SDLC.py, per the docstring above) or imported as sdlc.SDLC.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +57,7 @@ from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
 from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
 from sdlc.tools.aws_audit import AWSLiveSetupTool
 from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
+from sdlc.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
 
 load_dotenv()
 
@@ -141,6 +144,30 @@ class ReadinessReviewResult(BaseModel):
     skills_showcase: list[str] = []
 
 
+class FeatureRequirementsResult(BaseModel):
+    user_story: str
+    acceptance_criteria: list[str] = []
+    open_questions: list[str] = []
+    ready_for_development: bool
+
+
+class ArchitectureDirectionResult(BaseModel):
+    builds_on_existing_app: bool
+    new_infrastructure_needed: list[str] = []
+    non_functional_requirements: list[str] = []
+    technical_notes: str
+    clarifications_needed: list[str] = []
+    ready_for_development: bool
+
+
+class FeatureBuildResult(BaseModel):
+    branch_name: str
+    files_changed: list[str] = []
+    summary: str
+    pr_url: str = ""
+    questions_asked: list[str] = []
+
+
 # --- Demo inputs ----------------------------------------------------------
 # Only used when running this file directly (python SDLC.py) for a
 # quick wiring test.
@@ -179,19 +206,24 @@ with open(CONFIG_DIR / "tasks.yaml", "r") as f:
 with open(CONFIG_DIR / "ux_guidelines.md", "r") as f:
     UX_GUIDELINES = f.read()
 
-# --- LLM (same Claude setup as job_search.py) --------------------------
-# All 5 agents run on the cheap model for now - Marco plans to move
-# specific ones (likely code_reviewer/ux_reviewer, which need more
-# judgment) back to claude_high later.
+# --- LLM ------------------------------------------------------------------
+# Which Claude model each agent below runs on is data, not code: it lives
+# in config/agent_models.json and is editable live from the admin "AI
+# Models" tab in streamlit_app.py (see sdlc/model_registry.py). _llm()
+# just looks up that agent's current assignment at import time.
 
-claude_small = LLM(model="anthropic/claude-haiku-4-5-20251001")
-claude_high = LLM(model="anthropic/claude-sonnet-5")
+_agent_models = load_agent_models()
+
+
+def _llm(agent_key: str) -> LLM:
+    return LLM(model=_agent_models[agent_key])
+
 
 # --- Code Reviewer: agent + task + crew --------------------------------
 
 code_reviewer = Agent(
     config=agents_config["code_reviewer"],
-    llm=claude_small,
+    llm=_llm("code_reviewer"),
     verbose=True,
 )
 
@@ -212,7 +244,7 @@ code_review_crew = Crew(
 
 local_tester = Agent(
     config=agents_config["local_tester"],
-    llm=claude_small,
+    llm=_llm("local_tester"),
     verbose=True,
 )
 
@@ -246,7 +278,7 @@ performance_test_crew = Crew(
 
 ux_reviewer = Agent(
     config=agents_config["ux_reviewer"],
-    llm=claude_small,
+    llm=_llm("ux_reviewer"),
     tools=[UXPageInspectorTool()],
     verbose=True,
 )
@@ -268,7 +300,7 @@ ux_review_crew = Crew(
 
 prod_tester = Agent(
     config=agents_config["prod_tester"],
-    llm=claude_small,
+    llm=_llm("prod_tester"),
     tools=[ProdHealthCheckTool()],
     verbose=True,
 )
@@ -290,7 +322,7 @@ prod_test_crew = Crew(
 
 rollback_agent = Agent(
     config=agents_config["rollback_agent"],
-    llm=claude_small,
+    llm=_llm("rollback_agent"),
     tools=[ProdRollbackTool()],
     verbose=True,
 )
@@ -309,15 +341,15 @@ rollback_crew = Crew(
 )
 
 # --- DevOps Agent: agent + task + crew -----------------------------------
-# Deliberately on claude_high rather than claude_small like the other 5
-# agents for now - this one pushes a fix straight to origin/main and
-# re-triggers a production deploy with no human review step in
-# between, so a wrong diagnosis here is more costly than in the other
-# agents' review/report-only roles.
+# Deliberately on a stronger model than the other 5 agents (see
+# config/agent_models.json) - this one pushes a fix straight to
+# origin/main and re-triggers a production deploy with no human review
+# step in between, so a wrong diagnosis here is more costly than in the
+# other agents' review/report-only roles.
 
 devops_agent = Agent(
     config=agents_config["devops_agent"],
-    llm=claude_high,
+    llm=_llm("devops_agent"),
     tools=[
         FetchFailedRunLogsTool(),
         FileReadTool(),
@@ -341,7 +373,6 @@ devops_fix_crew = Crew(
     verbose=True,
 )
 
-
 # --- Technology Excellence panel: 6 agents + 7 tasks + crew ------------
 # Scoped specifically to the Job Finder project as a whole - always
 # BOTH the app repo (crewai-starter) and its sibling infra repo
@@ -353,10 +384,11 @@ devops_fix_crew = Crew(
 # abilities, and to say plainly what it currently demonstrates (see
 # skill_signal/skills_showcase below) as well as what would break the
 # pitch - in either repo. Not a per-commit gate like code_reviewer -
-# this runs on demand, before (re-)publishing. All six run on
-# claude_high: a wrong call here is either a missed leak
-# (security_engineer) or an embarrassing/overstated public claim, so
-# quality matters more than cost for an occasional review. Every
+# this runs on demand, before (re-)publishing. All six run on the
+# stronger tier by default (see config/agent_models.json): a wrong call
+# here is either a missed leak (security_engineer) or an
+# embarrassing/overstated public claim, so quality matters more than
+# cost for an occasional review. Every
 # persona shares the same read-only toolset (real git status/tracked
 # files, whether a given path was ever committed, and file reading) so
 # findings are grounded in what's actually in each repo, not
@@ -389,21 +421,24 @@ _aws_live_tools = _readiness_tools + [AWSLiveSetupTool()]
 _cto_tools = _readiness_tools + [GitHubLiveRepoCheckTool()]
 _security_tools = _aws_live_tools + [GitHubLiveRepoCheckTool()]
 
-cto = Agent(config=agents_config["cto"], llm=claude_high, tools=_cto_tools, verbose=True)
+cto = Agent(config=agents_config["cto"], llm=_llm("cto"), tools=_cto_tools, verbose=True)
 aws_lead_engineer = Agent(
-    config=agents_config["aws_lead_engineer"], llm=claude_high, tools=_aws_live_tools, verbose=True
+    config=agents_config["aws_lead_engineer"], llm=_llm("aws_lead_engineer"), tools=_aws_live_tools, verbose=True
 )
 python_lead_engineer = Agent(
-    config=agents_config["python_lead_engineer"], llm=claude_high, tools=_readiness_tools, verbose=True
+    config=agents_config["python_lead_engineer"],
+    llm=_llm("python_lead_engineer"),
+    tools=_readiness_tools,
+    verbose=True,
 )
 data_engineer = Agent(
-    config=agents_config["data_engineer"], llm=claude_high, tools=_readiness_tools, verbose=True
+    config=agents_config["data_engineer"], llm=_llm("data_engineer"), tools=_readiness_tools, verbose=True
 )
 ai_engineer = Agent(
-    config=agents_config["ai_engineer"], llm=claude_high, tools=_readiness_tools, verbose=True
+    config=agents_config["ai_engineer"], llm=_llm("ai_engineer"), tools=_readiness_tools, verbose=True
 )
 security_engineer = Agent(
-    config=agents_config["security_engineer"], llm=claude_high, tools=_security_tools, verbose=True
+    config=agents_config["security_engineer"], llm=_llm("security_engineer"), tools=_security_tools, verbose=True
 )
 
 cto_review_task = Task(
@@ -457,6 +492,115 @@ technology_excellence_crew = Crew(
     process=Process.sequential,
     verbose=True,
 )
+
+
+# --- Feature Build pipeline: Product Manager -> Software Architect ------
+# -> Software Engineer. Scoped to this repo (crewai-starter) only -
+# software_engineer never touches the sibling crewai-infra repo. Model
+# tier per agent is set in config/agent_models.json, editable from the
+# admin "AI Models" tab - see sdlc/model_registry.py for the current
+# recommendation and reasoning per agent.
+# software_engineer has allow_delegation=True, which gives it CrewAI's
+# built-in "ask question to coworker" tool - so it can genuinely turn
+# to product_manager for functional questions or software_architect for
+# technical ones mid-task, targeting them by their `role` string, rather
+# than guessing. Nothing here merges anything: software_engineer's own
+# tool (create_feature_branch_and_open_pr) only ever opens a PR against
+# main - the existing "PR code review" workflow and required-review
+# branch protection take it from there, same as any human-authored PR.
+
+product_manager = Agent(config=agents_config["product_manager"], llm=_llm("product_manager"), verbose=True)
+
+software_architect = Agent(
+    config=agents_config["software_architect"], llm=_llm("software_architect"), verbose=True
+)
+
+software_engineer = Agent(
+    config=agents_config["software_engineer"],
+    llm=_llm("software_engineer"),
+    tools=[FileReadTool(), FileWriterTool(), CreateFeatureBranchAndOpenPRTool()],
+    allow_delegation=True,
+    verbose=True,
+)
+
+feature_requirements_task = Task(
+    config=tasks_config["feature_requirements_task"],
+    agent=product_manager,
+    output_pydantic=FeatureRequirementsResult,
+)
+
+architecture_direction_task = Task(
+    config=tasks_config["architecture_direction_task"],
+    agent=software_architect,
+    context=[feature_requirements_task],
+    output_pydantic=ArchitectureDirectionResult,
+)
+
+# feature_build_task deliberately does NOT use context=[...] chaining to
+# feature_requirements_task/architecture_direction_task. It's meant to
+# run standalone, fed the already-approved PM requirements and Architect
+# direction as plain text (see build_feature() below) from whatever
+# earlier Requirements Challenge conversation produced them - which may
+# have been several turns, resolved over multiple challenge_requirement()
+# calls, possibly a while ago. Relying on context=[...] would only work
+# if those exact Task objects had just run within the same crew kickoff,
+# which isn't the case here and would also mean two concurrent admin
+# sessions could clobber each other's shared Task.output.
+feature_build_task = Task(
+    config=tasks_config["feature_build_task"],
+    agent=software_engineer,
+    output_pydantic=FeatureBuildResult,
+)
+
+# agents includes product_manager/software_architect (not just
+# software_engineer) so software_engineer's allow_delegation "ask
+# question to coworker" tool has live coworkers to target by role if it
+# genuinely needs to ask one mid-build - but tasks only lists
+# feature_build_task, so kicking off this crew does not re-run
+# feature_requirements_task/architecture_direction_task.
+feature_build_crew = Crew(
+    agents=[product_manager, software_architect, software_engineer],
+    tasks=[feature_build_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+# Backs the admin-only "Request a New Feature" chat page in
+# streamlit_app.py: reuses the same product_manager/software_architect
+# agents and feature_requirements_task/architecture_direction_task
+# above (same reuse pattern as local_tester across local_test_crew and
+# performance_test_crew) - just stops after the Architect's direction
+# instead of continuing on to software_engineer, since this page is
+# for Marco to be challenged and discuss a feature idea, not to have it
+# built and PR'd automatically.
+requirements_challenge_crew = Crew(
+    agents=[product_manager, software_architect],
+    tasks=[feature_requirements_task, architecture_direction_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+# Looked up by sdlc.model_registry.set_agent_model() so a model change
+# made from the admin "AI Models" tab can mutate the already-constructed
+# Agent's .llm directly, taking effect immediately in this running
+# process instead of only on the next restart.
+AGENTS_BY_KEY = {
+    "code_reviewer": code_reviewer,
+    "local_tester": local_tester,
+    "ux_reviewer": ux_reviewer,
+    "prod_tester": prod_tester,
+    "rollback_agent": rollback_agent,
+    "devops_agent": devops_agent,
+    "cto": cto,
+    "aws_lead_engineer": aws_lead_engineer,
+    "python_lead_engineer": python_lead_engineer,
+    "data_engineer": data_engineer,
+    "ai_engineer": ai_engineer,
+    "security_engineer": security_engineer,
+    "product_manager": product_manager,
+    "software_architect": software_architect,
+    "software_engineer": software_engineer,
+}
 
 
 def review_code(diff: str) -> CodeReviewResult | None:
@@ -648,6 +792,62 @@ def review_project_readiness(
     return readiness_result
 
 
+def _format_requirements_for_engineer(result: FeatureRequirementsResult) -> str:
+    lines = [f"User story: {result.user_story}", "Acceptance criteria:"]
+    lines += [f"- {criterion}" for criterion in result.acceptance_criteria]
+    return "\n".join(lines)
+
+
+def _format_architecture_for_engineer(result: ArchitectureDirectionResult) -> str:
+    lines = [
+        "Builds on the existing app as-is."
+        if result.builds_on_existing_app
+        else "Needs new infrastructure or a separate service."
+    ]
+    if result.new_infrastructure_needed:
+        lines.append("New infrastructure needed:")
+        lines += [f"- {item}" for item in result.new_infrastructure_needed]
+    if result.non_functional_requirements:
+        lines.append("Non-functional requirements:")
+        lines += [f"- {item}" for item in result.non_functional_requirements]
+    lines.append(f"Technical notes: {result.technical_notes}")
+    return "\n".join(lines)
+
+
+def build_feature(
+    pm_result: FeatureRequirementsResult, architect_result: ArchitectureDirectionResult
+) -> FeatureBuildResult | None:
+    """Run software_engineer against requirements/direction that a
+    Requirements Challenge conversation (challenge_requirement()) has
+    already produced and marked ready_for_development, and return the
+    engineer's build result (branch name, files changed, PR URL), or
+    None if the crew failed to produce a result. Raises ValueError if
+    either result isn't actually marked ready - the caller (the
+    Requirements Challenge admin page) is responsible for only offering
+    this action once both agents have confirmed readiness, and this is
+    a defense-in-depth check, not the primary gate. software_engineer
+    can delegate functional questions to product_manager or technical
+    questions to software_architect mid-build instead of guessing
+    (allow_delegation) - this does NOT re-run either agent's own task,
+    it only makes them available as live coworkers to ask. Only ever
+    opens a pull request against main in this repo (crewai-starter) -
+    never pushes directly to main and never merges anything itself; the
+    existing "PR code review" workflow and required-review branch
+    protection pick the PR up automatically from there, exactly like a
+    human-authored PR."""
+    if not (pm_result.ready_for_development and architect_result.ready_for_development):
+        raise ValueError(
+            "build_feature() called before both product_manager and "
+            "software_architect marked ready_for_development=True."
+        )
+    inputs = {
+        "pm_requirements": _format_requirements_for_engineer(pm_result),
+        "architecture_direction": _format_architecture_for_engineer(architect_result),
+    }
+    result = feature_build_crew.kickoff(inputs=inputs)
+    return result.pydantic if result.pydantic else None
+
+
 def fix_deploy_failure(
     workflow_name: str, workflow_file: str, run_id: str
 ) -> DevOpsFixResult | None:
@@ -664,6 +864,28 @@ def fix_deploy_failure(
     }
     result = devops_fix_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None
+
+
+def challenge_requirement(
+    conversation_text: str,
+) -> tuple[FeatureRequirementsResult, ArchitectureDirectionResult] | None:
+    """Runs the requirements-challenge crew over the conversation so far
+    (the original feature idea plus any follow-up answers Marco has
+    given to earlier open questions/clarifications, already merged into
+    one text by the caller) and returns both the Product Manager's and
+    the Software Architect's structured verdicts, or None if the crew
+    didn't produce both. Each call re-runs both agents fresh against the
+    full conversation rather than relying on in-process agent memory, so
+    a session picked back up later challenges from the same accumulated
+    context either way."""
+    result = requirements_challenge_crew.kickoff(inputs={"feature_request": conversation_text})
+    if len(result.tasks_output) < 2:
+        return None
+    pm_result = result.tasks_output[0].pydantic
+    architect_result = result.tasks_output[1].pydantic
+    if pm_result is None or architect_result is None:
+        return None
+    return pm_result, architect_result
 
 
 if __name__ == "__main__":

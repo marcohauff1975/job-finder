@@ -1,0 +1,17 @@
+{
+  "code_reviewer": "anthropic/claude-haiku-4-5-20251001",
+  "local_tester": "anthropic/claude-haiku-4-5-20251001",
+  "ux_reviewer": "anthropic/claude-haiku-4-5-20251001",
+  "prod_tester": "anthropic/claude-haiku-4-5-20251001",
+  "rollback_agent": "anthropic/claude-haiku-4-5-20251001",
+  "devops_agent": "anthropic/claude-sonnet-5",
+  "cto": "anthropic/claude-sonnet-5",
+  "aws_lead_engineer": "anthropic/claude-sonnet-5",
+  "python_lead_engineer": "anthropic/claude-sonnet-5",
+  "data_engineer": "anthropic/claude-sonnet-5",
+  "ai_engineer": "anthropic/claude-sonnet-5",
+  "security_engineer": "anthropic/claude-sonnet-5",
+  "product_manager": "anthropic/claude-haiku-4-5-20251001",
+  "software_architect": "anthropic/claude-haiku-4-5-20251001",
+  "software_engineer": "anthropic/claude-haiku-4-5-20251001"
+}
