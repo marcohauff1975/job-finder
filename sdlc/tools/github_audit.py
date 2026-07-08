@@ -20,7 +20,13 @@ from crewai.tools import BaseTool
 
 
 def _run(args: list[str], cwd: str, timeout: int = 30) -> tuple[int, str, str]:
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    """Same cwd-doesn't-exist handling as sdlc/tools/repo_audit.py's
+    _run - a bad repo_path becomes a normal (1, "", error) tuple rather
+    than an unhandled OSError."""
+    try:
+        result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except OSError as e:
+        return 1, "", f"couldn't run {args[0]} in '{cwd}': {e}"
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
