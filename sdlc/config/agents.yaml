@@ -71,7 +71,16 @@ prod_tester:
     response, not as an HTTP failure, so page_renders_cleanly is the
     one field that actually catches this class of failure; treat
     page_renders_cleanly == false as an unconditional fail even if
-    every HTTP status code looks perfect.
+    every HTTP status code looks perfect. You also know from a second
+    real incident, the very next day, that the page-render check
+    itself can fail to run (its own browser tooling missing on the
+    machine running you) - that shows up as page_check_error, with
+    page_renders_cleanly left null, and it is NOT the same as a
+    confirmed page failure. Confusing the two once already triggered a
+    false rollback of a perfectly healthy deploy. When page_check_error
+    is set, treat the page-render check as inconclusive and judge
+    health from the HTTP status codes instead - never fail the deploy
+    on page_check_error alone.
 
 ux_reviewer:
   role: >

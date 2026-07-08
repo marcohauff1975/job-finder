@@ -45,8 +45,19 @@ def _check_page_renders_cleanly(url: str, timeout_ms: int = 20000) -> dict:
     returns whether it actually shows the app or an in-page exception.
     No login/test account needed: a script-level crash (like a missing
     import) happens before any auth logic runs, so it breaks even the
-    unauthenticated landing page."""
-    result = {"page_renders_cleanly": None, "page_error_snippet": None}
+    unauthenticated landing page.
+
+    Deliberately keeps two different kinds of "didn't get a clean
+    result" apart: page_renders_cleanly is only ever True/False when
+    the check actually ran to completion (browser launched, page
+    loaded, text inspected) - if the check itself couldn't run at all
+    (e.g. Playwright's browser binary isn't installed on this machine,
+    a bug that once caused a real deploy to falsely roll back), that's
+    page_check_error instead, and page_renders_cleanly stays None. A
+    tool-execution failure says nothing about whether the app is
+    actually broken - callers must not treat it as a confirmed
+    page-content failure."""
+    result = {"page_renders_cleanly": None, "page_error_snippet": None, "page_check_error": None}
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
@@ -62,8 +73,7 @@ def _check_page_renders_cleanly(url: str, timeout_ms: int = 20000) -> dict:
             finally:
                 browser.close()
     except Exception as e:
-        result["page_renders_cleanly"] = False
-        result["page_error_snippet"] = f"{type(e).__name__}: {e}"
+        result["page_check_error"] = f"{type(e).__name__}: {e}"
     return result
 
 
@@ -105,7 +115,13 @@ class ProdHealthCheckTool(BaseTool):
         "crash (e.g. a missing dependency) still returns a plain 200 "
         "while showing every visitor a traceback - treat "
         "page_renders_cleanly == false as a failure regardless of what "
-        "the HTTP status codes say. Returns a JSON string with all of "
+        "the HTTP status codes say. IMPORTANT: if the page-render check "
+        "itself couldn't run (e.g. this machine's own browser tooling is "
+        "missing), that's reported as 'page_check_error' with "
+        "page_renders_cleanly left as null/None - this is NOT the same "
+        "as a confirmed page failure, it means the check is inconclusive, "
+        "so judge health from the HTTP status codes in that case instead "
+        "of assuming the app is broken. Returns a JSON string with all of "
         "the above, plus an 'error' key if any step failed. Requires a "
         "short-lived SSH private key already present at key_path "
         "(fetched by the workflow before the crew ran) - this tool "
