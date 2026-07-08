@@ -192,20 +192,33 @@ if st.query_params.get("admin") is not None:
         # Autofocuses the password field on load, since it's the only
         # thing to do on this screen - saves a click before typing.
         # Runs in components.v1.html's own sandboxed iframe, so it has
-        # to reach back into the real page via window.parent.
+        # to reach back into the real page via window.parent. Scoped
+        # to this field's own aria-label (not just input[type=password]
+        # generally) and wrapped in try/catch: if the browser ever
+        # blocks parent-frame access or the selector doesn't match,
+        # this silently does nothing - the user just clicks the field
+        # manually, exactly like before this change. It never blocks
+        # or alters form submission either way.
         st.components.v1.html(
             """
             <script>
-            setTimeout(function () {
-                const inputs = window.parent.document.querySelectorAll('input[type="password"]');
-                if (inputs.length > 0) {
-                    inputs[inputs.length - 1].focus();
-                }
-            }, 100);
+            try {
+                setTimeout(function () {
+                    const input = window.parent.document.querySelector(
+                        'input[aria-label="Password"][type="password"]'
+                    );
+                    if (input) { input.focus(); }
+                }, 150);
+            } catch (e) {}
             </script>
             """,
             height=0,
         )
+        # st.form (rather than a bare st.button) is what lets pressing
+        # Enter submit, not just clicking - form_submit_button still
+        # submits exactly once per click/Enter, same single-submission
+        # behavior as the original bare st.button; nothing about the
+        # submit-and-check-password logic below changed.
         with st.form("admin_login_form"):
             password = st.text_input("Password", type="password", key="admin_password")
             submitted = st.form_submit_button("Enter")
