@@ -23,6 +23,21 @@ MODEL_DISPLAY_NAMES = {
     "anthropic/claude-opus-4-8": "Opus 4.8 (strongest, slowest/priciest)",
 }
 
+# Called only from a Claude Code session running SDLC.py's
+# technology_excellence_crew (the pre-publish readiness review) - never
+# invoked by the deployed Streamlit app itself, unlike every other agent
+# below. Kept separate so the admin "AI Models" tab can show them in
+# their own group instead of implying they're part of the live app's
+# request path.
+TECH_EXCELLENCE_AGENT_KEYS = [
+    "cto",
+    "aws_lead_engineer",
+    "python_lead_engineer",
+    "data_engineer",
+    "ai_engineer",
+    "security_engineer",
+]
+
 AGENT_DISPLAY_NAMES = {
     "code_reviewer": "Code Reviewer",
     "local_tester": "Local Tester",

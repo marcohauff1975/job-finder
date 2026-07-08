@@ -56,7 +56,7 @@ from job_search import (
     save_tailored_resume,
     tailor_resume_for_job,
 )
-from ai_viewer import render_sidebar_toggle, setup_layout
+from ai_viewer import render_live_activity_panel, render_sidebar_toggle, setup_layout
 from sdlc.SDLC import (
     ArchitectureDirectionResult,
     FeatureRequirementsResult,
@@ -67,6 +67,7 @@ from sdlc.model_registry import (
     AGENT_DISPLAY_NAMES,
     MODEL_DISPLAY_NAMES,
     RECOMMENDATIONS,
+    TECH_EXCELLENCE_AGENT_KEYS,
     load_agent_models,
     set_agent_model,
 )
@@ -364,8 +365,10 @@ def _render_requirements_challenge_page() -> None:
             session_id = st.session_state["rc_session_id"]
             build_result = None
             error = None
+            st.session_state["ai_steps"] = []
             try:
                 with st.spinner("👷 Software Engineer is building this feature..."):
+                    render_live_activity_panel()
                     build_result = _run_with_retry(build_feature, pm_result, architect_result)
             except Exception as e:
                 error = f"The build failed: {e}"
@@ -403,8 +406,10 @@ def _render_requirements_challenge_page() -> None:
 
         result = None
         error = None
+        st.session_state["ai_steps"] = []
         try:
             with st.spinner("✨ Magic is happening, please wait..."):
+                render_live_activity_panel()
                 result = _run_with_retry(
                     challenge_requirement, _format_conversation_for_agents(messages)
                 )
@@ -439,6 +444,57 @@ def _render_requirements_challenge_page() -> None:
         st.session_state["rc_messages"] = messages
         save_session(session_id, messages)
         st.rerun()
+
+
+def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> None:
+    """Renders one editable Agent/Current/Recommended/Why/New-model table
+    for the given agent_keys (see AGENT_DISPLAY_NAMES in
+    sdlc/model_registry.py) on the admin "AI Models" tab, with its own
+    save button. widget_key_prefix keeps this group's Streamlit widget
+    keys distinct from any other group rendered on the same page."""
+    current_models = load_agent_models()
+    display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
+
+    rows = []
+    for agent_key in agent_keys:
+        recommended_id, rationale = RECOMMENDATIONS[agent_key]
+        current_label = MODEL_DISPLAY_NAMES[current_models[agent_key]]
+        rows.append(
+            {
+                "Agent": AGENT_DISPLAY_NAMES[agent_key],
+                "Current model": current_label,
+                "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
+                "New model": current_label,
+                "Why": rationale,
+            }
+        )
+
+    edited_rows = st.data_editor(
+        rows,
+        column_config={
+            "Why": st.column_config.TextColumn(width="large"),
+            "New model": st.column_config.SelectboxColumn(
+                options=list(MODEL_DISPLAY_NAMES.values()), required=True
+            ),
+        },
+        disabled=["Agent", "Current model", "Recommended", "Why"],
+        use_container_width=True,
+        hide_index=True,
+        key=f"{widget_key_prefix}_editor",
+    )
+
+    if st.button("Save model changes", key=f"{widget_key_prefix}_save"):
+        changed = 0
+        for agent_key, edited in zip(agent_keys, edited_rows):
+            new_model_id = display_to_model_id[edited["New model"]]
+            if new_model_id != current_models[agent_key]:
+                set_agent_model(agent_key, new_model_id)
+                changed += 1
+        if changed:
+            st.success(f"Updated {changed} agent(s) - takes effect immediately, no restart needed.")
+            st.rerun()
+        else:
+            st.info("No changes to save.")
 
 
 st.set_page_config(
@@ -626,50 +682,24 @@ if st.query_params.get("admin") is not None:
                 "saved so they survive the next restart."
             )
 
-            current_models = load_agent_models()
-            display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
-            agent_keys = list(AGENT_DISPLAY_NAMES.keys())
+            app_agent_keys = [
+                key for key in AGENT_DISPLAY_NAMES if key not in TECH_EXCELLENCE_AGENT_KEYS
+            ]
 
-            rows = []
-            for agent_key in agent_keys:
-                recommended_id, rationale = RECOMMENDATIONS[agent_key]
-                current_label = MODEL_DISPLAY_NAMES[current_models[agent_key]]
-                rows.append(
-                    {
-                        "Agent": AGENT_DISPLAY_NAMES[agent_key],
-                        "Current model": current_label,
-                        "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
-                        "Why": rationale,
-                        "New model": current_label,
-                    }
-                )
+            st.markdown("#### SDLC pipeline agents")
+            st.caption("Called by this app itself, as part of its own SDLC pipeline.")
+            _render_agent_model_table(app_agent_keys, "app_agents")
 
-            edited_rows = st.data_editor(
-                rows,
-                column_config={
-                    "Why": st.column_config.TextColumn(width="large"),
-                    "New model": st.column_config.SelectboxColumn(
-                        options=list(MODEL_DISPLAY_NAMES.values()), required=True
-                    ),
-                },
-                disabled=["Agent", "Current model", "Recommended", "Why"],
-                use_container_width=True,
-                hide_index=True,
-                key="agent_model_editor",
+            st.divider()
+
+            st.markdown("#### Technology Excellence panel")
+            st.caption(
+                "Only ever invoked from a Claude Code session running the "
+                "pre-publish readiness review (sdlc/SDLC.py's "
+                "technology_excellence_crew) - never called by this "
+                "deployed app itself."
             )
-
-            if st.button("Save model changes"):
-                changed = 0
-                for agent_key, edited in zip(agent_keys, edited_rows):
-                    new_model_id = display_to_model_id[edited["New model"]]
-                    if new_model_id != current_models[agent_key]:
-                        set_agent_model(agent_key, new_model_id)
-                        changed += 1
-                if changed:
-                    st.success(f"Updated {changed} agent(s) - takes effect immediately, no restart needed.")
-                    st.rerun()
-                else:
-                    st.info("No changes to save.")
+            _render_agent_model_table(TECH_EXCELLENCE_AGENT_KEYS, "tech_excellence_agents")
     st.stop()
 
 st.markdown(
