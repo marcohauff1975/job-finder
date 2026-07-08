@@ -82,6 +82,15 @@ jobs:
             echo "needs_restart=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Without this, a new dependency in requirements.txt never makes
+      # it into the server's persistent venv, and the app restarts
+      # straight into a ModuleNotFoundError with no warning.
+      - name: Install dependencies on the server
+        if: steps.diff.outputs.needs_restart == 'true'
+        run: |
+          ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && venv/bin/pip install -r requirements.txt"
+
       - name: Restart jobfinder.service
         if: steps.diff.outputs.needs_restart == 'true'
         run: |
