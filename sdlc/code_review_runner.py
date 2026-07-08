@@ -37,6 +37,12 @@ def _require(name: str) -> str:
     return value
 
 
+def _sanitize_markdown_line(text: str) -> str:
+    """Collapse to a single line and drop backticks so a finding can't break
+    out of its `code span` or inject extra markdown list items/headers."""
+    return " ".join(text.replace("`", "'").split())
+
+
 def main() -> int:
     diff_file = _require("DIFF_FILE")
     pr_number = _require("PR_NUMBER")
@@ -72,7 +78,9 @@ def main() -> int:
     lines = ["**Automated review by code_reviewer** found issues that need addressing:", ""]
     for finding in result.findings:
         location = f"{finding.file}:{finding.line}" if finding.line else finding.file
-        lines.append(f"- `{location}` - {finding.risk}")
+        location = _sanitize_markdown_line(location)
+        risk = _sanitize_markdown_line(finding.risk)
+        lines.append(f"- `{location}` - {risk}")
     body = "\n".join(lines)
 
     subprocess.run(
