@@ -57,7 +57,19 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
-from sdlc.SDLC import challenge_requirement
+from sdlc.SDLC import (
+    ArchitectureDirectionResult,
+    FeatureRequirementsResult,
+    build_feature,
+    challenge_requirement,
+)
+from sdlc.model_registry import (
+    AGENT_DISPLAY_NAMES,
+    MODEL_DISPLAY_NAMES,
+    RECOMMENDATIONS,
+    load_agent_models,
+    set_agent_model,
+)
 from sdlc.requirements_sessions import list_sessions, load_session, new_session_id, save_session
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 from streamlit_autorefresh import st_autorefresh
@@ -228,6 +240,53 @@ def _format_architect_result(result) -> str:
     return "\n".join(lines)
 
 
+def _format_engineer_result(result) -> str:
+    """Renders a FeatureBuildResult (see sdlc/SDLC.py) as the Software
+    Engineer's chat bubble content."""
+    lines = ["**Senior Software Engineer**", "", f"**Branch:** `{result.branch_name}`"]
+    if result.pr_url:
+        lines.append(f"**Pull request:** {result.pr_url}")
+    lines.append("")
+    lines.append(f"**Summary:** {result.summary}")
+    if result.files_changed:
+        lines.append("")
+        lines.append("**Files changed:**")
+        for path in result.files_changed:
+            lines.append(f"- `{path}`")
+    if result.questions_asked:
+        lines.append("")
+        lines.append("**Questions asked while building:**")
+        for question in result.questions_asked:
+            lines.append(f"- {question}")
+    return "\n".join(lines)
+
+
+def _latest_ready_pair(
+    messages: list[dict],
+) -> tuple[FeatureRequirementsResult, ArchitectureDirectionResult] | None:
+    """If the conversation's last two messages are a product_manager +
+    software_architect pair that both came back ready_for_development,
+    reconstructs and returns their structured results (for the "Push to
+    Software Engineer" button) - otherwise None. Requiring them to be
+    the literal last two messages means the button naturally disappears
+    once a newer message is appended after them, whether that's a fresh
+    user follow-up (superseding this verdict) or the engineer's own
+    build result (so the same requirements can't be pushed twice)."""
+    if len(messages) < 2:
+        return None
+    pm_message, architect_message = messages[-2], messages[-1]
+    if pm_message.get("role") != "product_manager" or architect_message.get("role") != "software_architect":
+        return None
+    pm_data, architect_data = pm_message.get("data"), architect_message.get("data")
+    if pm_data is None or architect_data is None:
+        return None
+    pm_result = FeatureRequirementsResult(**pm_data)
+    architect_result = ArchitectureDirectionResult(**architect_data)
+    if not (pm_result.ready_for_development and architect_result.ready_for_development):
+        return None
+    return pm_result, architect_result
+
+
 def _format_conversation_for_agents(messages: list[dict]) -> str:
     """Turns the saved chat history into one text block for the
     requirements-challenge crew's feature_request input - each turn is
@@ -286,11 +345,50 @@ def _render_requirements_challenge_page() -> None:
     if not messages:
         st.info("Describe a feature idea below to start a new challenge.")
 
-    avatars = {"user": "🧑‍💼", "product_manager": "📋", "software_architect": "🏗️"}
+    avatars = {
+        "user": "🧑‍💼",
+        "product_manager": "📋",
+        "software_architect": "🏗️",
+        "software_engineer": "👷",
+    }
     for message in messages:
         role = "user" if message["role"] == "user" else "assistant"
         with st.chat_message(role, avatar=avatars.get(message["role"])):
             st.markdown(message["content"])
+
+    ready_pair = _latest_ready_pair(messages)
+    if ready_pair is not None:
+        st.success("Both agents have confirmed this is ready for development.")
+        if st.button("🚀 Push to Software Engineer", key="rc_push_to_engineer", type="primary"):
+            pm_result, architect_result = ready_pair
+            session_id = st.session_state["rc_session_id"]
+            build_result = None
+            error = None
+            try:
+                with st.spinner("👷 Software Engineer is building this feature..."):
+                    build_result = _run_with_retry(build_feature, pm_result, architect_result)
+            except Exception as e:
+                error = f"The build failed: {e}"
+
+            if error is not None or build_result is None:
+                messages.append(
+                    {
+                        "role": "software_engineer",
+                        "content": f"⚠️ {error or 'Something went wrong and no build result was produced.'}",
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "role": "software_engineer",
+                        "content": _format_engineer_result(build_result),
+                        "data": build_result.model_dump(),
+                    }
+                )
+
+            st.session_state["rc_messages"] = messages
+            save_session(session_id, messages)
+            st.rerun()
 
     prompt = st.chat_input("Describe a feature, or answer the open questions above...")
     if prompt:
@@ -323,9 +421,19 @@ def _render_requirements_challenge_page() -> None:
             )
         else:
             pm_result, architect_result = result
-            messages.append({"role": "product_manager", "content": _format_pm_result(pm_result)})
             messages.append(
-                {"role": "software_architect", "content": _format_architect_result(architect_result)}
+                {
+                    "role": "product_manager",
+                    "content": _format_pm_result(pm_result),
+                    "data": pm_result.model_dump(),
+                }
+            )
+            messages.append(
+                {
+                    "role": "software_architect",
+                    "content": _format_architect_result(architect_result),
+                    "data": architect_result.model_dump(),
+                }
             )
 
         st.session_state["rc_messages"] = messages
@@ -384,8 +492,8 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
-        tab_overview, tab_sdlc, tab_requirements = st.tabs(
-            ["Overview", "SDLC Pipeline", "Request a New Feature"]
+        tab_overview, tab_sdlc, tab_requirements, tab_models = st.tabs(
+            ["Overview", "SDLC Pipeline", "Request a New Feature", "AI Models"]
         )
 
         with tab_requirements:
@@ -507,6 +615,61 @@ if st.query_params.get("admin") is not None:
             else:
                 st.markdown(f"**#{pr_info['number']}** — {pr_info['title']} ([view PR]({pr_info['url']}))")
                 st.markdown(render_pr_flow_svg(stages), unsafe_allow_html=True)
+
+        with tab_models:
+            st.caption(
+                "Every SDLC agent's currently assigned Claude model, a "
+                "recommendation for best performance based on that "
+                "agent's actual stakes and judgment load (see "
+                "sdlc/model_registry.py), and a control to change it. "
+                "Changes apply immediately to this running app and are "
+                "saved so they survive the next restart."
+            )
+
+            current_models = load_agent_models()
+            display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
+            agent_keys = list(AGENT_DISPLAY_NAMES.keys())
+
+            rows = []
+            for agent_key in agent_keys:
+                recommended_id, rationale = RECOMMENDATIONS[agent_key]
+                current_label = MODEL_DISPLAY_NAMES[current_models[agent_key]]
+                rows.append(
+                    {
+                        "Agent": AGENT_DISPLAY_NAMES[agent_key],
+                        "Current model": current_label,
+                        "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
+                        "Why": rationale,
+                        "New model": current_label,
+                    }
+                )
+
+            edited_rows = st.data_editor(
+                rows,
+                column_config={
+                    "Why": st.column_config.TextColumn(width="large"),
+                    "New model": st.column_config.SelectboxColumn(
+                        options=list(MODEL_DISPLAY_NAMES.values()), required=True
+                    ),
+                },
+                disabled=["Agent", "Current model", "Recommended", "Why"],
+                use_container_width=True,
+                hide_index=True,
+                key="agent_model_editor",
+            )
+
+            if st.button("Save model changes"):
+                changed = 0
+                for agent_key, edited in zip(agent_keys, edited_rows):
+                    new_model_id = display_to_model_id[edited["New model"]]
+                    if new_model_id != current_models[agent_key]:
+                        set_agent_model(agent_key, new_model_id)
+                        changed += 1
+                if changed:
+                    st.success(f"Updated {changed} agent(s) - takes effect immediately, no restart needed.")
+                    st.rerun()
+                else:
+                    st.info("No changes to save.")
     st.stop()
 
 st.markdown(

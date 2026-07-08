@@ -489,9 +489,12 @@ feature_requirements_task:
     reasonably decide yourself.
   expected_output: >
     A short user story, a concrete list of acceptance criteria a
-    tester could check off one by one, and a list of open questions
-    (empty if none) that genuinely need Marco's input rather than an
-    engineering decision.
+    tester could check off one by one, a list of open questions (empty
+    if none) that genuinely need Marco's input rather than an
+    engineering decision, and an explicit ready_for_development verdict
+    that must be true if and only if open_questions is empty - true
+    means engineering could start from this alone, false means at least
+    one open question still needs Marco's answer first.
   agent: product_manager
 
 architecture_direction_task:
@@ -515,16 +518,23 @@ architecture_direction_task:
     Whether the feature builds on the existing app or needs new
     infrastructure (and what, if so), a list of non-functional
     requirements that apply, technical notes concrete enough for an
-    engineer to start from, and a list of clarifications needed from
-    the Product Manager (empty if none).
+    engineer to start from, a list of clarifications needed from the
+    Product Manager (empty if none), and an explicit
+    ready_for_development verdict that must be true if and only if
+    clarifications_needed is empty - true means an engineer could start
+    building from this direction alone, false means at least one
+    clarification still needs the Product Manager's answer first.
   agent: software_architect
 
 feature_build_task:
   description: >
-    The Product Manager's requirements and the Software Architect's
-    technical direction for this feature are both given to you as
-    context. Implement it in this repository (crewai-starter). Read
-    the actual existing code relevant to the change with the
+    The Product Manager's approved requirements for this feature are:
+    {pm_requirements}
+    The Software Architect's approved technical direction is:
+    {architecture_direction}
+    Both were already confirmed ready for development before you were
+    handed this task - implement it in this repository (crewai-starter).
+    Read the actual existing code relevant to the change with the
     file-reading tool before writing anything - never assume how
     something currently works. Match this codebase's established
     conventions (Streamlit + CrewAI, SQLite-backed auth, per-user
