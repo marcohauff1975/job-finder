@@ -55,6 +55,7 @@ from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
 from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
 from sdlc.tools.aws_audit import AWSLiveSetupTool
 from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
+from sdlc.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
 
 load_dotenv()
 
@@ -139,6 +140,28 @@ class ReadinessReviewResult(BaseModel):
     blocking_issues: list[ReadinessFinding] = []
     quick_wins: list[str] = []
     skills_showcase: list[str] = []
+
+
+class FeatureRequirementsResult(BaseModel):
+    user_story: str
+    acceptance_criteria: list[str] = []
+    open_questions: list[str] = []
+
+
+class ArchitectureDirectionResult(BaseModel):
+    builds_on_existing_app: bool
+    new_infrastructure_needed: list[str] = []
+    non_functional_requirements: list[str] = []
+    technical_notes: str
+    clarifications_needed: list[str] = []
+
+
+class FeatureBuildResult(BaseModel):
+    branch_name: str
+    files_changed: list[str] = []
+    summary: str
+    pr_url: str = ""
+    questions_asked: list[str] = []
 
 
 # --- Demo inputs ----------------------------------------------------------
@@ -341,6 +364,48 @@ devops_fix_crew = Crew(
     verbose=True,
 )
 
+# --- Requirements Challenge: Product Manager + Software Architect ------
+# Backs the admin-only "Requirements Challenge" chat page in
+# streamlit_app.py: a raw feature idea Marco types in gets challenged
+# first by product_manager (turned into a structured user story +
+# acceptance criteria + open questions) and then by software_architect
+# (concrete technical direction, given the PM's requirements as
+# context via CrewAI's context= wiring - not a template placeholder).
+# Both run on claude_high - this exists to produce genuinely useful
+# pushback before a line of code gets written, not a rubber stamp.
+
+product_manager = Agent(
+    config=agents_config["product_manager"],
+    llm=claude_high,
+    verbose=True,
+)
+
+feature_requirements_task = Task(
+    config=tasks_config["feature_requirements_task"],
+    agent=product_manager,
+    output_pydantic=FeatureRequirementsResult,
+)
+
+software_architect = Agent(
+    config=agents_config["software_architect"],
+    llm=claude_high,
+    verbose=True,
+)
+
+architecture_direction_task = Task(
+    config=tasks_config["architecture_direction_task"],
+    agent=software_architect,
+    context=[feature_requirements_task],
+    output_pydantic=ArchitectureDirectionResult,
+)
+
+requirements_challenge_crew = Crew(
+    agents=[product_manager, software_architect],
+    tasks=[feature_requirements_task, architecture_direction_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
 
 # --- Technology Excellence panel: 6 agents + 7 tasks + crew ------------
 # Scoped specifically to the Job Finder project as a whole - always
@@ -454,6 +519,60 @@ technology_excellence_crew = Crew(
         security_review_task,
         readiness_synthesis_task,
     ],
+    process=Process.sequential,
+    verbose=True,
+)
+
+
+# --- Feature Build pipeline: Product Manager -> Software Architect ------
+# -> Software Engineer. Scoped to this repo (crewai-starter) only -
+# software_engineer never touches the sibling crewai-infra repo. All
+# three on claude_small for now, same "start cheap, upgrade later if
+# needed" reasoning already applied to the first 5 agents above.
+# software_engineer has allow_delegation=True, which gives it CrewAI's
+# built-in "ask question to coworker" tool - so it can genuinely turn
+# to product_manager for functional questions or software_architect for
+# technical ones mid-task, targeting them by their `role` string, rather
+# than guessing. Nothing here merges anything: software_engineer's own
+# tool (create_feature_branch_and_open_pr) only ever opens a PR against
+# main - the existing "PR code review" workflow and required-review
+# branch protection take it from there, same as any human-authored PR.
+
+product_manager = Agent(config=agents_config["product_manager"], llm=claude_small, verbose=True)
+
+software_architect = Agent(config=agents_config["software_architect"], llm=claude_small, verbose=True)
+
+software_engineer = Agent(
+    config=agents_config["software_engineer"],
+    llm=claude_small,
+    tools=[FileReadTool(), FileWriterTool(), CreateFeatureBranchAndOpenPRTool()],
+    allow_delegation=True,
+    verbose=True,
+)
+
+feature_requirements_task = Task(
+    config=tasks_config["feature_requirements_task"],
+    agent=product_manager,
+    output_pydantic=FeatureRequirementsResult,
+)
+
+architecture_direction_task = Task(
+    config=tasks_config["architecture_direction_task"],
+    agent=software_architect,
+    context=[feature_requirements_task],
+    output_pydantic=ArchitectureDirectionResult,
+)
+
+feature_build_task = Task(
+    config=tasks_config["feature_build_task"],
+    agent=software_engineer,
+    context=[feature_requirements_task, architecture_direction_task],
+    output_pydantic=FeatureBuildResult,
+)
+
+feature_build_crew = Crew(
+    agents=[product_manager, software_architect, software_engineer],
+    tasks=[feature_requirements_task, architecture_direction_task, feature_build_task],
     process=Process.sequential,
     verbose=True,
 )
@@ -648,6 +767,24 @@ def review_project_readiness(
     return readiness_result
 
 
+def build_feature(feature_request: str) -> FeatureBuildResult | None:
+    """Run the Product Manager -> Software Architect -> Software
+    Engineer pipeline over a raw feature request and return the
+    engineer's build result (branch name, files changed, PR URL), or
+    None if it failed. software_engineer can delegate functional
+    questions to product_manager or technical questions to
+    software_architect mid-task instead of guessing (allow_delegation).
+    Only ever opens a pull request against main in this repo
+    (crewai-starter) - never pushes directly to main and never merges
+    anything itself; the existing "PR code review" workflow and
+    required-review branch protection pick the PR up automatically from
+    there, exactly like a human-authored PR. Not yet wired to any
+    trigger (CLI, GitHub Actions, admin UI) - call it directly for now,
+    same as every other stage before its own workflow was built."""
+    result = feature_build_crew.kickoff(inputs={"feature_request": feature_request})
+    return result.pydantic if result.pydantic else None
+
+
 def fix_deploy_failure(
     workflow_name: str, workflow_file: str, run_id: str
 ) -> DevOpsFixResult | None:
@@ -664,6 +801,28 @@ def fix_deploy_failure(
     }
     result = devops_fix_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None
+
+
+def challenge_requirement(
+    conversation_text: str,
+) -> tuple[FeatureRequirementsResult, ArchitectureDirectionResult] | None:
+    """Runs the requirements-challenge crew over the conversation so far
+    (the original feature idea plus any follow-up answers Marco has
+    given to earlier open questions/clarifications, already merged into
+    one text by the caller) and returns both the Product Manager's and
+    the Software Architect's structured verdicts, or None if the crew
+    didn't produce both. Each call re-runs both agents fresh against the
+    full conversation rather than relying on in-process agent memory, so
+    a session picked back up later challenges from the same accumulated
+    context either way."""
+    result = requirements_challenge_crew.kickoff(inputs={"feature_request": conversation_text})
+    if len(result.tasks_output) < 2:
+        return None
+    pm_result = result.tasks_output[0].pydantic
+    architect_result = result.tasks_output[1].pydantic
+    if pm_result is None or architect_result is None:
+        return None
+    return pm_result, architect_result
 
 
 if __name__ == "__main__":

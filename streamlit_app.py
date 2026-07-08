@@ -57,6 +57,8 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
+from sdlc.SDLC import challenge_requirement
+from sdlc.requirements_sessions import list_sessions, load_session, new_session_id, save_session
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 from streamlit_autorefresh import st_autorefresh
 
@@ -181,6 +183,160 @@ def _run_with_retry(func, *args, retries=1, **kwargs):
     raise last_error
 
 
+def _format_pm_result(result) -> str:
+    """Renders a FeatureRequirementsResult (see sdlc/SDLC.py) as the
+    Product Manager's chat bubble content."""
+    lines = ["**Senior Product Manager**", "", f"**User story:** {result.user_story}"]
+    lines.append("")
+    lines.append("**Acceptance criteria:**")
+    for criterion in result.acceptance_criteria:
+        lines.append(f"- {criterion}")
+    if result.open_questions:
+        lines.append("")
+        lines.append("**Open questions:**")
+        for question in result.open_questions:
+            lines.append(f"- {question}")
+    return "\n".join(lines)
+
+
+def _format_architect_result(result) -> str:
+    """Renders an ArchitectureDirectionResult (see sdlc/SDLC.py) as the
+    Software Architect's chat bubble content."""
+    lines = ["**Senior Software Architect**", ""]
+    lines.append(
+        "Builds on the existing app as-is."
+        if result.builds_on_existing_app
+        else "Needs new infrastructure or a separate service."
+    )
+    if result.new_infrastructure_needed:
+        lines.append("")
+        lines.append("**New infrastructure needed:**")
+        for item in result.new_infrastructure_needed:
+            lines.append(f"- {item}")
+    if result.non_functional_requirements:
+        lines.append("")
+        lines.append("**Non-functional requirements:**")
+        for item in result.non_functional_requirements:
+            lines.append(f"- {item}")
+    lines.append("")
+    lines.append(f"**Technical notes:** {result.technical_notes}")
+    if result.clarifications_needed:
+        lines.append("")
+        lines.append("**Clarifications needed:**")
+        for item in result.clarifications_needed:
+            lines.append(f"- {item}")
+    return "\n".join(lines)
+
+
+def _format_conversation_for_agents(messages: list[dict]) -> str:
+    """Turns the saved chat history into one text block for the
+    requirements-challenge crew's feature_request input - each turn is
+    labeled by speaker, so the agents see exactly what was already said
+    and can treat a later user message as a follow-up/answer rather
+    than a brand new unrelated request."""
+    speaker_labels = {
+        "user": "Marco",
+        "product_manager": "Product Manager",
+        "software_architect": "Software Architect",
+    }
+    parts = [
+        f"{speaker_labels.get(message['role'], message['role'])}: {message['content']}"
+        for message in messages
+    ]
+    return "\n\n".join(parts)
+
+
+def _render_requirements_challenge_page() -> None:
+    """Admin-only sub-page where Marco types a raw feature idea and gets
+    it challenged by the product_manager and software_architect agents
+    (sdlc/SDLC.py's challenge_requirement) - chat layout modeled on
+    Claude Code's own UI: message history on top, input pinned to the
+    bottom, sessions managed from the sidebar. Each session is a JSON
+    file under data/requirements_sessions/ (sdlc/requirements_sessions.py)."""
+    with st.sidebar:
+        st.markdown("### 💬 Requirements Challenge")
+        if st.button("+ New session", key="rc_new_session", use_container_width=True):
+            st.session_state["rc_session_id"] = new_session_id()
+            st.session_state["rc_messages"] = []
+            st.rerun()
+        st.markdown("---")
+        st.caption("Recent sessions")
+        sessions = list_sessions()
+        if not sessions:
+            st.caption("No sessions yet.")
+        for session in sessions:
+            is_active = session["id"] == st.session_state.get("rc_session_id")
+            label = ("▶ " if is_active else "") + session["title"]
+            if st.button(label, key=f"rc_session_{session['id']}", use_container_width=True):
+                st.session_state["rc_session_id"] = session["id"]
+                loaded = load_session(session["id"])
+                st.session_state["rc_messages"] = loaded["messages"] if loaded else []
+                st.rerun()
+        st.markdown("---")
+        if st.button("← Back to Dashboard", key="rc_back_to_dashboard", use_container_width=True):
+            st.session_state["admin_view"] = "dashboard"
+            st.rerun()
+
+    st.markdown(
+        '<div class="hero-badge">✨ Powered by AI agents</div>'
+        '<div class="hero-title" style="font-size:1.8rem;">Requirements Challenge</div>'
+        '<div class="hero-tagline">Describe a feature idea - the Senior Product Manager and '
+        "Senior Software Architect agents will challenge it before a line of code gets written."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    messages = st.session_state.get("rc_messages", [])
+    if not messages:
+        st.info("Describe a feature idea below to start a new challenge.")
+
+    avatars = {"user": "🧑‍💼", "product_manager": "📋", "software_architect": "🏗️"}
+    for message in messages:
+        role = "user" if message["role"] == "user" else "assistant"
+        with st.chat_message(role, avatar=avatars.get(message["role"])):
+            st.markdown(message["content"])
+
+    prompt = st.chat_input("Describe a feature, or answer the open questions above...")
+    if prompt:
+        if not st.session_state.get("rc_session_id"):
+            st.session_state["rc_session_id"] = new_session_id()
+        session_id = st.session_state["rc_session_id"]
+
+        messages = st.session_state.get("rc_messages", [])
+        messages.append({"role": "user", "content": prompt})
+        st.session_state["rc_messages"] = messages
+        save_session(session_id, messages)
+
+        result = None
+        error = None
+        try:
+            with st.spinner("✨ Magic is happening, please wait..."):
+                result = _run_with_retry(
+                    challenge_requirement, _format_conversation_for_agents(messages)
+                )
+        except Exception as e:
+            error = f"The requirements challenge failed: {e}"
+
+        if error is not None or result is None:
+            messages.append(
+                {
+                    "role": "product_manager",
+                    "content": f"⚠️ {error or 'Something went wrong and no response was produced.'} "
+                    "Try rephrasing or resubmitting.",
+                }
+            )
+        else:
+            pm_result, architect_result = result
+            messages.append({"role": "product_manager", "content": _format_pm_result(pm_result)})
+            messages.append(
+                {"role": "software_architect", "content": _format_architect_result(architect_result)}
+            )
+
+        st.session_state["rc_messages"] = messages
+        save_session(session_id, messages)
+        st.rerun()
+
+
 st.set_page_config(
     page_title="Job Finder — AI-Powered Job Search",
     page_icon="✨",
@@ -231,7 +387,17 @@ if st.query_params.get("admin") is not None:
                 st.rerun()
             else:
                 st.error("Incorrect password.")
+    elif st.session_state.get("admin_view") == "requirements":
+        _render_requirements_challenge_page()
     else:
+        nav_col, _spacer = st.columns([1, 3])
+        with nav_col:
+            if st.button(
+                "💬 Requirements Challenge", key="admin_nav_requirements", use_container_width=True
+            ):
+                st.session_state["admin_view"] = "requirements"
+                st.rerun()
+
         tab_overview, tab_sdlc = st.tabs(["Overview", "SDLC Pipeline"])
 
         with tab_overview:

@@ -473,6 +473,81 @@ readiness_synthesis_task:
     a hiring manager.
   agent: cto
 
+feature_requirements_task:
+  description: >
+    A new feature has been requested for the Job Finder app:
+    {feature_request}
+    Challenge and structure this the way a good Product Manager would:
+    who is it for, what problem does it solve that the app doesn't
+    already solve, what does "done" look like in concrete testable
+    terms, what edge cases matter (no resume uploaded yet, zero search
+    results, a returning vs first-time user), and what's explicitly out
+    of scope for this pass. Resolve as much of this yourself as you
+    reasonably can from the app's existing purpose and patterns - only
+    raise something as an open question if it genuinely requires
+    Marco's own product/priority judgment, never for a detail you could
+    reasonably decide yourself.
+  expected_output: >
+    A short user story, a concrete list of acceptance criteria a
+    tester could check off one by one, and a list of open questions
+    (empty if none) that genuinely need Marco's input rather than an
+    engineering decision.
+  agent: product_manager
+
+architecture_direction_task:
+  description: >
+    The Product Manager's requirements for this feature are given to
+    you as context. Decide the concrete technical direction: does this
+    fit inside the existing Job Finder app (Streamlit + CrewAI, this
+    same repo) as-is, or does it need new infrastructure or a separate
+    service - and if so, exactly what and why. Call out non-functional
+    requirements that actually apply given this app's real constraints:
+    a single Streamlit process (so background/scheduled work can't just
+    live inside a request-response cycle), SQLite-backed auth and
+    per-user users/<email>/ file storage (so anything touching auth.py
+    or the schema must stay backward compatible with existing user
+    records), and a single production server with manual deploy (so
+    anything writing shared state needs to consider concurrent
+    sessions). If any part of the PM's requirements is still ambiguous
+    from a technical-design standpoint, list it as a clarification
+    needed rather than guessing an assumption.
+  expected_output: >
+    Whether the feature builds on the existing app or needs new
+    infrastructure (and what, if so), a list of non-functional
+    requirements that apply, technical notes concrete enough for an
+    engineer to start from, and a list of clarifications needed from
+    the Product Manager (empty if none).
+  agent: software_architect
+
+feature_build_task:
+  description: >
+    The Product Manager's requirements and the Software Architect's
+    technical direction for this feature are both given to you as
+    context. Implement it in this repository (crewai-starter). Read
+    the actual existing code relevant to the change with the
+    file-reading tool before writing anything - never assume how
+    something currently works. Match this codebase's established
+    conventions (Streamlit + CrewAI, SQLite-backed auth, per-user
+    users/<email>/ file storage) and build only what the requirements
+    and direction actually call for - no unrelated refactors, no
+    defensive handling for scenarios that can't happen. If the
+    *functional* intent is unclear even after reading the requirements,
+    ask product_manager directly rather than guessing; if the
+    *technical* direction is unclear, ask software_architect. Once the
+    change is complete, call create_feature_branch_and_open_pr with a
+    descriptive branch name (e.g. feature/short-slug), exactly the file
+    paths you changed, a commit message, and a PR title/body
+    summarizing the feature and referencing the requirements and
+    technical direction - never pass 'main' or 'master' as the branch
+    name, and never attempt to merge the PR yourself.
+  expected_output: >
+    The branch name used, the list of files changed, a summary of what
+    was built, the PR URL (from create_feature_branch_and_open_pr's own
+    output, not assumed), and a list of any questions you asked
+    product_manager or software_architect while building (empty if
+    none).
+  agent: software_engineer
+
 rollback_task:
   description: >
     The production smoke test for commit {new_commit} failed with:
