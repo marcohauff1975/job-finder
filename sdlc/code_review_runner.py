@@ -43,7 +43,8 @@ def main() -> int:
     repo = _require("REPO")
     bot_token = _require("REVIEWER_BOT_TOKEN")
 
-    diff = open(diff_file).read()
+    with open(diff_file) as f:
+        diff = f.read()
     if not diff.strip():
         print("Empty diff - nothing to review.")
         return 0
