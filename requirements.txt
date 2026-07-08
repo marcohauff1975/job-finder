@@ -10,3 +10,4 @@ boto3
 pypdf
 playwright
 requests
+streamlit-autorefresh
