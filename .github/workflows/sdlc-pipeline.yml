@@ -139,6 +139,18 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # Without this, a new dependency in requirements.txt only ever
+      # gets installed into this runner's own throwaway environment
+      # (for the crew that runs prod_tester below), never into the
+      # server's persistent venv - the app would restart straight into
+      # a ModuleNotFoundError with no warning, exactly what happened
+      # before this step existed.
+      - name: Install dependencies on the server
+        if: steps.diff.outputs.needs_restart == 'true'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "cd $REMOTE_APP_DIR && venv/bin/pip install -r requirements.txt"
+
       - name: Restart jobfinder.service
         if: steps.diff.outputs.needs_restart == 'true'
         run: |
