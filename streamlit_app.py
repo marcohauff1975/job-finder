@@ -254,7 +254,7 @@ def _render_requirements_challenge_page() -> None:
     bottom, sessions managed from the sidebar. Each session is a JSON
     file under data/requirements_sessions/ (sdlc/requirements_sessions.py)."""
     with st.sidebar:
-        st.markdown("### 💬 Requirements Challenge")
+        st.markdown("### 💬 Request a New Feature")
         if st.button("+ New session", key="rc_new_session", use_container_width=True):
             st.session_state["rc_session_id"] = new_session_id()
             st.session_state["rc_messages"] = []
@@ -272,14 +272,10 @@ def _render_requirements_challenge_page() -> None:
                 loaded = load_session(session["id"])
                 st.session_state["rc_messages"] = loaded["messages"] if loaded else []
                 st.rerun()
-        st.markdown("---")
-        if st.button("← Back to Dashboard", key="rc_back_to_dashboard", use_container_width=True):
-            st.session_state["admin_view"] = "dashboard"
-            st.rerun()
 
     st.markdown(
         '<div class="hero-badge">✨ Powered by AI agents</div>'
-        '<div class="hero-title" style="font-size:1.8rem;">Requirements Challenge</div>'
+        '<div class="hero-title" style="font-size:1.8rem;">Request a New Feature</div>'
         '<div class="hero-tagline">Describe a feature idea - the Senior Product Manager and '
         "Senior Software Architect agents will challenge it before a line of code gets written."
         "</div>",
@@ -387,18 +383,13 @@ if st.query_params.get("admin") is not None:
                 st.rerun()
             else:
                 st.error("Incorrect password.")
-    elif st.session_state.get("admin_view") == "requirements":
-        _render_requirements_challenge_page()
     else:
-        nav_col, _spacer = st.columns([1, 3])
-        with nav_col:
-            if st.button(
-                "💬 Requirements Challenge", key="admin_nav_requirements", use_container_width=True
-            ):
-                st.session_state["admin_view"] = "requirements"
-                st.rerun()
+        tab_overview, tab_sdlc, tab_requirements = st.tabs(
+            ["Overview", "SDLC Pipeline", "Request a New Feature"]
+        )
 
-        tab_overview, tab_sdlc = st.tabs(["Overview", "SDLC Pipeline"])
+        with tab_requirements:
+            _render_requirements_challenge_page()
 
         with tab_overview:
             report = get_report()

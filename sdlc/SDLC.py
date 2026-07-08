@@ -364,49 +364,6 @@ devops_fix_crew = Crew(
     verbose=True,
 )
 
-# --- Requirements Challenge: Product Manager + Software Architect ------
-# Backs the admin-only "Requirements Challenge" chat page in
-# streamlit_app.py: a raw feature idea Marco types in gets challenged
-# first by product_manager (turned into a structured user story +
-# acceptance criteria + open questions) and then by software_architect
-# (concrete technical direction, given the PM's requirements as
-# context via CrewAI's context= wiring - not a template placeholder).
-# Both run on claude_high - this exists to produce genuinely useful
-# pushback before a line of code gets written, not a rubber stamp.
-
-product_manager = Agent(
-    config=agents_config["product_manager"],
-    llm=claude_high,
-    verbose=True,
-)
-
-feature_requirements_task = Task(
-    config=tasks_config["feature_requirements_task"],
-    agent=product_manager,
-    output_pydantic=FeatureRequirementsResult,
-)
-
-software_architect = Agent(
-    config=agents_config["software_architect"],
-    llm=claude_high,
-    verbose=True,
-)
-
-architecture_direction_task = Task(
-    config=tasks_config["architecture_direction_task"],
-    agent=software_architect,
-    context=[feature_requirements_task],
-    output_pydantic=ArchitectureDirectionResult,
-)
-
-requirements_challenge_crew = Crew(
-    agents=[product_manager, software_architect],
-    tasks=[feature_requirements_task, architecture_direction_task],
-    process=Process.sequential,
-    verbose=True,
-)
-
-
 # --- Technology Excellence panel: 6 agents + 7 tasks + crew ------------
 # Scoped specifically to the Job Finder project as a whole - always
 # BOTH the app repo (crewai-starter) and its sibling infra repo
@@ -573,6 +530,21 @@ feature_build_task = Task(
 feature_build_crew = Crew(
     agents=[product_manager, software_architect, software_engineer],
     tasks=[feature_requirements_task, architecture_direction_task, feature_build_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+# Backs the admin-only "Request a New Feature" chat page in
+# streamlit_app.py: reuses the same product_manager/software_architect
+# agents and feature_requirements_task/architecture_direction_task
+# above (same reuse pattern as local_tester across local_test_crew and
+# performance_test_crew) - just stops after the Architect's direction
+# instead of continuing on to software_engineer, since this page is
+# for Marco to be challenged and discuss a feature idea, not to have it
+# built and PR'd automatically.
+requirements_challenge_crew = Crew(
+    agents=[product_manager, software_architect],
+    tasks=[feature_requirements_task, architecture_direction_task],
     process=Process.sequential,
     verbose=True,
 )
