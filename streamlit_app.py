@@ -189,8 +189,27 @@ st.set_page_config(
 
 if st.query_params.get("admin") is not None:
     if not st.session_state.get("admin_authed"):
-        password = st.text_input("Password", type="password", key="admin_password")
-        if st.button("Enter"):
+        # Autofocuses the password field on load, since it's the only
+        # thing to do on this screen - saves a click before typing.
+        # Runs in components.v1.html's own sandboxed iframe, so it has
+        # to reach back into the real page via window.parent.
+        st.components.v1.html(
+            """
+            <script>
+            setTimeout(function () {
+                const inputs = window.parent.document.querySelectorAll('input[type="password"]');
+                if (inputs.length > 0) {
+                    inputs[inputs.length - 1].focus();
+                }
+            }, 100);
+            </script>
+            """,
+            height=0,
+        )
+        with st.form("admin_login_form"):
+            password = st.text_input("Password", type="password", key="admin_password")
+            submitted = st.form_submit_button("Enter")
+        if submitted:
             admin_password = get_admin_password()
             if admin_password is None:
                 st.error("Admin password unavailable (couldn't reach Secrets Manager).")
