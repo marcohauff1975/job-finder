@@ -64,7 +64,7 @@ jobs:
           FAILED_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           FAILED_WORKFLOW_FILE: ${{ github.event.workflow_run.path }}
           FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
-        run: python sdlc/devops_agent_runner.py
+        run: python -m sdlc.devops_agent_runner
 
       - name: Notify that this needs a human (already tried once)
         if: steps.guard.outputs.already_tried == 'true'

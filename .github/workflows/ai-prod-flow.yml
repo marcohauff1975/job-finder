@@ -111,7 +111,7 @@ jobs:
           NEW_COMMIT: ${{ steps.diff.outputs.new_commit }}
           CHANGE_SUMMARY: ${{ steps.diff.outputs.change_summary }}
           FLOW_TO_TEST: "The homepage loads and login/registration renders."
-        run: python sdlc/ai_prod_flow_runner.py
+        run: python -m sdlc.ai_prod_flow_runner
 
       - name: Clean up key material
         if: always()
