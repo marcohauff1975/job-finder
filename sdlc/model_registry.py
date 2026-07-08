@@ -11,6 +11,7 @@ effect on that agent's next run immediately, no app restart needed.
 """
 
 import json
+import threading
 from pathlib import Path
 
 from crewai import LLM
@@ -148,22 +149,39 @@ RECOMMENDATIONS = {
 }
 
 
+_LOCK = threading.Lock()
+
+
 def load_agent_models() -> dict[str, str]:
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
 
 
 def set_agent_model(agent_key: str, model_id: str) -> None:
-    current = load_agent_models()
-    current[agent_key] = model_id
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(current, f, indent=2)
-        f.write("\n")
+    """Persists the change and swaps the already-constructed Agent's
+    .llm in place (see module docstring). Two admin sessions changing
+    models around the same time would otherwise race on the
+    read-modify-write against CONFIG_PATH (one session's change getting
+    silently lost) - _LOCK serializes that. It does NOT protect a crew
+    that's already mid-run elsewhere in the process from picking up the
+    new model on its next step: agents are process-wide singletons (see
+    sdlc/SDLC.py), by the same design as local_tester being reused
+    across local_test_crew/performance_test_crew, so a change here is
+    inherently visible to any crew using that agent, in-flight or not -
+    that's the deliberate tradeoff of "takes effect immediately, no
+    restart needed" and would need per-run agent instances to avoid,
+    which this pipeline doesn't do anywhere today."""
+    with _LOCK:
+        current = load_agent_models()
+        current[agent_key] = model_id
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(current, f, indent=2)
+            f.write("\n")
 
-    import sys
+        import sys
 
-    sdlc_module = sys.modules.get("sdlc.SDLC")
-    if sdlc_module is not None:
-        agent = sdlc_module.AGENTS_BY_KEY.get(agent_key)
-        if agent is not None:
-            agent.llm = LLM(model=model_id)
+        sdlc_module = sys.modules.get("sdlc.SDLC")
+        if sdlc_module is not None:
+            agent = sdlc_module.AGENTS_BY_KEY.get(agent_key)
+            if agent is not None:
+                agent.llm = LLM(model=model_id)
