@@ -1,17 +1,19 @@
 """
 Live flowchart of the most recently active pull request's real journey
-through the SDLC "review" pipeline - Merge Request -> Code Review
-(one box per real review round, looping back on "changes requested")
--> Push to Master once actually merged. Read-only, needs
+through the SDLC pipeline: Merge Request -> Code Review (one box per
+real review round, looping back on "changes requested") -> Push to
+Master once merged -> Push to Prod -> Test in Prod, branching down to
+Invoke DevOps Agent if the deploy/test fails. Read-only, needs
 GITHUB_ACTIONS_TOKEN in the environment (same .env pattern as
 SERPER_API_KEY); no crewai/Anthropic import, so it stays out of the
 production process's dependency footprint.
 
-Deliberately stops at "Push to Master": the deploy side (Push to Prod,
-Test in Prod, DevOps auto-fix) isn't tied to a specific PR today - it's
-a separate, manually-triggered pipeline - so stitching it onto this
-PR's diagram would invent a link that doesn't actually exist yet.
-Revisit once the two pipelines are actually one.
+Code review and deploy are now one combined GitHub Actions workflow
+(.github/workflows/sdlc-pipeline.yml) - code_review job on
+pull_request, deploy job on push to main (i.e. right after a merge) -
+so this diagram can follow a single PR all the way through production
+instead of stopping at the merge, the way it used to when the two were
+separate, manually-triggered pipelines.
 """
 
 import os
@@ -21,11 +23,13 @@ import requests
 import streamlit as st
 
 GITHUB_REPO = "marcohauff1975/job-finder"
-CODE_REVIEW_WORKFLOW_FILE = "pr-code-review.yml"
+PIPELINE_WORKFLOW_FILE = "sdlc-pipeline.yml"
+DEVOPS_AGENT_WORKFLOW_FILE = "devops-agent.yml"
 
 STAGE_COLORS = {
     "ok": "#22d3ee",  # cyan - succeeded
-    "changes_requested": "#f59e0b",  # amber - needs rework
+    "changes_requested": "#f59e0b",  # amber - code review needs rework (loops back to Merge Request)
+    "failed": "#f59e0b",  # amber - deploy/test failed (branches down to DevOps Agent, no loop back)
     "running": "#8b5cf6",  # violet - in progress right now
 }
 
@@ -62,18 +66,134 @@ def _summarize_review(body: str) -> str:
     return _truncate(body) if body.strip() else "No comments."
 
 
+def _step(steps: list[dict], name_substr: str) -> dict | None:
+    for s in steps:
+        if name_substr.lower() in (s.get("name") or "").lower():
+            return s
+    return None
+
+
+def _deploy_stages(pr: dict, token: str) -> list[dict]:
+    """Returns the Push to Prod / Test in Prod / Invoke DevOps Agent
+    stages for the deploy triggered by this PR's actual merge commit -
+    empty if the PR isn't merged yet, or that merge hasn't triggered a
+    deploy run yet."""
+    merge_sha = pr.get("merge_commit_sha")
+    if not merge_sha:
+        return []
+
+    runs, ok = _gh_get(
+        f"/actions/workflows/{PIPELINE_WORKFLOW_FILE}/runs", token, params={"per_page": 20, "event": "push"}
+    )
+    if not ok:
+        return []
+    deploy_run = next(
+        (r for r in (runs or {}).get("workflow_runs", []) if r.get("head_sha") == merge_sha), None
+    )
+    if deploy_run is None:
+        return []
+
+    jobs_data, ok2 = _gh_get(f"/actions/runs/{deploy_run['id']}/jobs", token)
+    if not ok2:
+        return []
+    jobs = (jobs_data or {}).get("jobs", [])
+    steps = jobs[0].get("steps", []) if jobs else []
+    run_completed = deploy_run.get("status") == "completed"
+    run_url = deploy_run.get("html_url", pr["html_url"])
+
+    stages: list[dict] = []
+
+    restart_step = _step(steps, "Restart jobfinder.service")
+    pull_step = _step(steps, "Pull latest main on the server")
+    if pull_step is None:
+        push_state = "running" if not run_completed else "failed"
+        push_summary = "Deploy running now…" if not run_completed else "Deploy step didn't complete."
+    elif restart_step is not None and restart_step.get("conclusion") == "success":
+        push_state = "ok"
+        push_summary = "Pulled latest main and restarted jobfinder.service."
+    elif restart_step is not None and restart_step.get("conclusion") == "skipped":
+        push_state = "ok"
+        push_summary = "Pulled latest main - no restart needed (no code changes)."
+    elif not run_completed:
+        push_state = "running"
+        push_summary = "Deploying now…"
+    else:
+        push_state = "failed"
+        push_summary = "Restart step failed - see run logs."
+    stages.append(
+        {
+            "kind": "push_to_prod",
+            "label": "Push to Prod",
+            "agent": "deploy pipeline",
+            "state": push_state,
+            "summary": push_summary,
+            "url": run_url,
+        }
+    )
+
+    test_step = _step(steps, "Run prod_tester")
+    if test_step is not None:
+        test_conclusion = test_step.get("conclusion")
+        if test_step.get("status") != "completed":
+            test_state, test_summary = "running", "prod_tester is checking production now…"
+        elif test_conclusion == "success":
+            test_state, test_summary = "ok", "Production verified healthy after deploy."
+        else:
+            test_state, test_summary = "failed", "Smoke test failed - see run logs."
+        stages.append(
+            {
+                "kind": "test_in_prod",
+                "label": "Test in Prod",
+                "agent": "prod_tester",
+                "state": test_state,
+                "summary": test_summary,
+                "url": run_url,
+            }
+        )
+
+        if test_state == "failed":
+            devops_runs, ok3 = _gh_get(
+                f"/actions/workflows/{DEVOPS_AGENT_WORKFLOW_FILE}/runs", token, params={"per_page": 10}
+            )
+            devops_run = None
+            if ok3:
+                devops_run = next(
+                    (r for r in (devops_runs or {}).get("workflow_runs", []) if r.get("head_sha") == merge_sha),
+                    None,
+                )
+            if devops_run is not None:
+                if devops_run.get("status") != "completed":
+                    devops_state, devops_summary = "running", "devops_agent is diagnosing the failure now…"
+                elif devops_run.get("conclusion") == "success":
+                    devops_state, devops_summary = "ok", "Applied a fix, pushed it, and re-triggered the deploy."
+                else:
+                    devops_state, devops_summary = "failed", "Auto-fix attempt failed - needs a human look."
+                stages.append(
+                    {
+                        "kind": "devops_agent",
+                        "label": "Invoke DevOps Agent",
+                        "agent": "devops_agent",
+                        "state": devops_state,
+                        "summary": devops_summary,
+                        "url": devops_run.get("html_url", run_url),
+                    }
+                )
+
+    return stages
+
+
 @st.cache_data(ttl=15)
 def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
     """Returns (pr_info, stages, error). pr_info is {number, title, url,
     author, created_at} for the most recently active PR (open or
-    merged); stages is the ordered, real sequence of boxes to draw for
-    that PR - a Merge Request stage, one Code Review stage per actual
-    review round (state "ok" or "changes_requested"), a "running" Code
-    Review stage if the workflow is mid-run with no review posted yet,
-    and a final Push to Master stage only if the PR is actually merged.
-    error is None, "no_token", or "unreachable". Cached 15s so a 10s
-    auto-refresh mostly reuses one fetch instead of hitting GitHub on
-    every poll."""
+    merged); stages is the ordered, real sequence of boxes to draw:
+    Merge Request, one Code Review box per actual review round (or a
+    "running" box if a round is mid-flight), Push to Master once
+    merged, then Push to Prod / Test in Prod / Invoke DevOps Agent
+    (only once each has actually run) if that merge has triggered a
+    deploy. error is None, "no_token", or "unreachable". Cached 15s so
+    a 10s auto-refresh mostly reuses one fetch instead of hitting
+    GitHub on every poll."""
     token = os.getenv("GITHUB_ACTIONS_TOKEN")
     if not token:
         return None, [], "no_token"
@@ -96,7 +216,9 @@ def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
     pr, ok = _gh_get(f"/pulls/{number}", token)
     reviews, ok2 = _gh_get(f"/pulls/{number}/reviews", token)
     runs, ok3 = _gh_get(
-        f"/actions/workflows/{CODE_REVIEW_WORKFLOW_FILE}/runs", token, params={"per_page": 20}
+        f"/actions/workflows/{PIPELINE_WORKFLOW_FILE}/runs",
+        token,
+        params={"per_page": 20, "event": "pull_request"},
     )
     if not (ok and ok2 and ok3):
         return None, [], "unreachable"
@@ -166,6 +288,7 @@ def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
                 "url": pr_info["url"],
             }
         )
+        stages.extend(_deploy_stages(pr, token))
 
     return pr_info, stages, None
 
@@ -189,10 +312,14 @@ def _wrap(text: str, width: int = 24) -> list[str]:
 def render_pr_flow_svg(stages: list[dict]) -> str:
     """Builds the flowchart as a self-contained SVG string (inline
     attributes only, no <style> block - keeps streamlit_app.py's rule
-    that all page-level CSS lives in exactly one place). Boxes run
-    left to right in real chronological order; any "changes_requested"
-    stage gets a curved arrow looping back down to the Merge Request
-    box, labeled "if not ok", mirroring the actual rework cycle."""
+    that all page-level CSS lives in exactly one place). Boxes run left
+    to right in real chronological order. A "changes_requested" stage
+    (code review rework) gets a dashed arrow looping back to the Merge
+    Request box - each round in its own lane so multiple rounds don't
+    overlap. A "devops_agent" stage is drawn separately, below the last
+    box, connected by a plain down arrow - it's a branch to a new
+    activity, not a loop back to the start, matching how a failed
+    production test actually gets handled."""
     box_w, box_h, gap = 210, 80, 70
     top = 30
     desc_top = top + box_h + 26
@@ -201,10 +328,21 @@ def render_pr_flow_svg(stages: list[dict]) -> str:
     desc_bottom = desc_top + (max_desc_lines - 1) * desc_line_h
     loop_lane_gap = 28  # vertical spacing between stacked rework loops, so multiple rounds don't overlap
     loop_y_base = desc_bottom + 30  # clear of the description text below the boxes
-    n = len(stages)
-    rework_count = sum(1 for s in stages if s["state"] == "changes_requested")
+
+    main_stages = [s for s in stages if s["kind"] != "devops_agent"]
+    devops_stage = next((s for s in stages if s["kind"] == "devops_agent"), None)
+
+    n = len(main_stages)
+    rework_count = sum(1 for s in main_stages if s["state"] == "changes_requested")
     width = max(n * box_w + (n - 1) * gap + 40, 400)
-    height = loop_y_base + max(rework_count, 1) * loop_lane_gap + 24
+    content_bottom = loop_y_base + max(rework_count, 1) * loop_lane_gap
+
+    devops_top = None
+    if devops_stage is not None:
+        devops_top = max(desc_bottom, content_bottom) + 50
+        content_bottom = devops_top + box_h + 26 + (max_desc_lines - 1) * desc_line_h
+
+    height = content_bottom + 24
 
     parts = [
         f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
@@ -218,28 +356,37 @@ def render_pr_flow_svg(stages: list[dict]) -> str:
         "</defs>",
     ]
 
-    positions = []
-    x = 20
-    for stage in stages:
+    def draw_box(x: float, y: float, stage: dict) -> None:
         color = STAGE_COLORS.get(stage["state"], "#8b5cf6")
-        positions.append((x, top))
         parts.append(
-            f'<rect x="{x}" y="{top}" width="{box_w}" height="{box_h}" rx="12" '
+            f'<rect x="{x}" y="{y}" width="{box_w}" height="{box_h}" rx="12" '
             f'fill="{color}" fill-opacity="0.14" stroke="{color}" stroke-width="2"/>'
         )
         parts.append(
-            f'<text x="{x + box_w / 2}" y="{top + 30}" fill="#f1f5f9" font-size="14" '
+            f'<text x="{x + box_w / 2}" y="{y + 30}" fill="#f1f5f9" font-size="14" '
             f'font-weight="700" text-anchor="middle">{escape(stage["label"])}</text>'
         )
         parts.append(
-            f'<text x="{x + box_w / 2}" y="{top + 52}" fill="{color}" font-size="12" '
+            f'<text x="{x + box_w / 2}" y="{y + 52}" fill="{color}" font-size="12" '
             f'text-anchor="middle">{escape(stage["agent"])}</text>'
         )
         if stage["state"] == "running":
             parts.append(
-                f'<text x="{x + box_w / 2}" y="{top + 70}" fill="{color}" font-size="11" '
+                f'<text x="{x + box_w / 2}" y="{y + 70}" fill="{color}" font-size="11" '
                 f'text-anchor="middle">● running now</text>'
             )
+        lines = _wrap(stage["summary"])
+        desc_y = y + box_h + 26
+        for j, line in enumerate(lines):
+            parts.append(
+                f'<text x="{x}" y="{desc_y + j * desc_line_h}" fill="#94a3b8" font-size="11">{escape(line)}</text>'
+            )
+
+    positions = []
+    x = 20
+    for stage in main_stages:
+        positions.append((x, top))
+        draw_box(x, top, stage)
         x += box_w + gap
 
     for i in range(n - 1):
@@ -251,17 +398,9 @@ def render_pr_flow_svg(stages: list[dict]) -> str:
             f'stroke-width="2" marker-end="url(#arrow)"/>'
         )
 
-    for i, stage in enumerate(stages):
-        bx = positions[i][0]
-        lines = _wrap(stage["summary"])
-        for j, line in enumerate(lines):
-            parts.append(
-                f'<text x="{bx}" y="{desc_top + j * desc_line_h}" fill="#94a3b8" font-size="11">{escape(line)}</text>'
-            )
-
     mr_x = positions[0][0] + box_w / 2
     lane_index = 0
-    for i, stage in enumerate(stages):
+    for i, stage in enumerate(main_stages):
         if stage["state"] != "changes_requested":
             continue
         loop_y = loop_y_base + lane_index * loop_lane_gap
@@ -281,6 +420,20 @@ def render_pr_flow_svg(stages: list[dict]) -> str:
         parts.append(
             f'<text x="{(cr_x + mr_x) / 2}" y="{loop_y + 14}" fill="#f59e0b" font-size="11" '
             f'text-anchor="middle">if not ok - rework</text>'
+        )
+
+    if devops_stage is not None and devops_top is not None:
+        last_x = positions[-1][0]
+        devops_x = last_x
+        draw_box(devops_x, devops_top, devops_stage)
+        arrow_x = last_x + box_w / 2
+        parts.append(
+            f'<line x1="{arrow_x}" y1="{top + box_h}" x2="{arrow_x}" y2="{devops_top - 8}" '
+            f'stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrow-amber)"/>'
+        )
+        parts.append(
+            f'<text x="{arrow_x + 10}" y="{(top + box_h + devops_top) / 2}" fill="#f59e0b" font-size="11">'
+            f"if not ok</text>"
         )
 
     parts.append("</svg>")
