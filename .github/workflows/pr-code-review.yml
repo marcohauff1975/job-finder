@@ -1,0 +1,42 @@
+name: PR code review
+
+# Runs on every pull request into main and submits an actual review -
+# approve or request changes - as the MarcoAIagent account, which is
+# what actually satisfies (or blocks) the "required approving review"
+# branch protection rule on main. GitHub doesn't allow a PR's own
+# author to approve it, so this can't run as the default GITHUB_TOKEN
+# or whichever account opened the PR - it needs REVIEWER_BOT_TOKEN, a
+# token belonging to that separate account.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies (for the CrewAI agent)
+        run: pip install -r requirements.txt
+
+      - name: Get the PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > /tmp/pr.diff
+
+      - name: Run code_reviewer and submit the review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REVIEWER_BOT_TOKEN: ${{ secrets.REVIEWER_BOT_TOKEN }}
+          DIFF_FILE: /tmp/pr.diff
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: python -m sdlc.code_review_runner
