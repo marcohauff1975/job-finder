@@ -57,7 +57,8 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
-from sdlc_status import STATUS_ICONS, get_pipeline_status
+from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
+from streamlit_autorefresh import st_autorefresh
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
 
@@ -293,41 +294,30 @@ if st.query_params.get("admin") is not None:
 
         with tab_sdlc:
             st.caption(
-                "Recent runs across the SDLC workflows - PR review, both "
-                "production-deploy variants, and the DevOps auto-fix - merged "
-                "into one timeline (today's two separate pipelines, meant to "
-                "converge into one over time). Read-only: nothing here can "
-                "trigger, cancel, or re-run a workflow."
+                "Live view of the most recently active pull request's real "
+                "journey through the review pipeline - Merge Request, each "
+                "actual Code Review round, looping back on rework, and Push "
+                "to Master once merged. Stops there: the deploy pipeline "
+                "isn't tied to a specific PR yet, so it isn't stitched on. "
+                "Read-only: nothing here can trigger, cancel, or re-run "
+                "anything."
             )
-            if st.button("Refresh", key="sdlc_refresh"):
-                get_pipeline_status.clear()
-                st.rerun()
+            st_autorefresh(interval=10_000, key="sdlc_flow_autorefresh")
 
             try:
-                events, status_error = get_pipeline_status()
+                pr_info, stages, flow_error = get_latest_pr_flow()
             except Exception:
-                events, status_error = [], "error"
+                pr_info, stages, flow_error = None, [], "error"
 
-            if status_error == "no_token":
+            if flow_error == "no_token":
                 st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this tab.")
-            elif status_error in ("unreachable", "error"):
-                st.warning("Couldn't reach the GitHub Actions API just now - try Refresh in a moment.")
-            elif not events:
-                st.info("No workflow runs found yet.")
+            elif flow_error in ("unreachable", "error"):
+                st.warning("Couldn't reach the GitHub API just now - it'll retry automatically.")
+            elif not stages:
+                st.info("No pull requests found yet.")
             else:
-                for event in events:
-                    icon = (
-                        "🔄"
-                        if event["status"] != "completed"
-                        else STATUS_ICONS.get(event["conclusion"], "❓")
-                    )
-                    st.markdown(
-                        f"{icon} **{event['stage']}** — {event['title']}  \n"
-                        f"<span style='color:gray;font-size:0.85em'>"
-                        f"{event['started_at']} · "
-                        f"<a href='{event['run_url']}'>view run</a></span>",
-                        unsafe_allow_html=True,
-                    )
+                st.markdown(f"**#{pr_info['number']}** — {pr_info['title']} ([view PR]({pr_info['url']}))")
+                st.markdown(render_pr_flow_svg(stages), unsafe_allow_html=True)
     st.stop()
 
 st.markdown(
