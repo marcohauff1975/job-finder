@@ -563,7 +563,7 @@ def rollback(
     return result.pydantic if result.pydantic else None
 
 
-def _write_linkedin_activity_log(result: ReadinessReviewResult) -> Path:
+def _write_linkedin_activity_log(result: ReadinessReviewResult) -> Path | None:
     """Writes today's panel run into LINKEDIN_ACTIVITY_LOG_DIR, in the
     exact format Marco already exports by hand (see that folder's own
     HOW-TO-export-from-claude-code.md): a dated file, third person,
@@ -575,7 +575,11 @@ def _write_linkedin_activity_log(result: ReadinessReviewResult) -> Path:
     state, not accumulate stale duplicate entries. blocking_issues
     force CONFIDENTIAL: yes, since an unresolved leak or overprivileged
     credential isn't safe to summarize publicly yet, even in outline
-    form, until it's actually fixed."""
+    form, until it's actually fixed. Returns None (after printing a
+    warning) if the log directory can't be created or written to - this
+    export is a side effect of a review run, not its point, so a full
+    readiness verdict should never be lost just because this optional
+    step failed."""
     today = date.today().isoformat()
     path = LINKEDIN_ACTIVITY_LOG_DIR / f"{today}-tech-excellence-review.md"
 
@@ -608,8 +612,12 @@ minutes to look - not just that nothing is broken.
 
 CONFIDENTIAL: {confidential}
 """
-    LINKEDIN_ACTIVITY_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    try:
+        LINKEDIN_ACTIVITY_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    except OSError as e:
+        print(f"::warning::Couldn't write LinkedIn activity log to {path}: {e}")
+        return None
     return path
 
 

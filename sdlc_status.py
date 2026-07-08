@@ -34,7 +34,11 @@ PIPELINE_WORKFLOWS = [
 STATUS_ICONS = {"success": "✅", "failure": "❌", "cancelled": "⚠️"}
 
 
-def _fetch_runs(workflow_file: str, token: str, limit: int) -> list[dict]:
+def _fetch_runs(workflow_file: str, token: str, limit: int) -> tuple[list[dict], bool]:
+    """Returns (runs, ok). ok is False only if the request itself
+    failed (network error, bad auth, GitHub down) - a workflow that's
+    simply never run yet still returns (ok=True, runs=[]), which is a
+    different, non-error condition from the dashboard's point of view."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{workflow_file}/runs"
     try:
         response = requests.get(
@@ -44,26 +48,32 @@ def _fetch_runs(workflow_file: str, token: str, limit: int) -> list[dict]:
             timeout=10,
         )
         response.raise_for_status()
-        return response.json().get("workflow_runs", [])
+        return response.json().get("workflow_runs", []), True
     except (requests.RequestException, ValueError):
-        return []
+        return [], False
 
 
 @st.cache_data(ttl=60)
-def get_pipeline_status(runs_per_workflow: int = 5) -> list[dict]:
-    """Returns a flat, time-sorted (newest first) list of recent runs
-    across all four SDLC workflows, each as {stage, status, conclusion,
-    run_url, started_at, title}. Empty list if GITHUB_ACTIONS_TOKEN
-    isn't set or GitHub is unreachable - the dashboard shows that
-    plainly rather than stale/fake data. Cached 60s so the admin tab
+def get_pipeline_status(runs_per_workflow: int = 5) -> tuple[list[dict], str | None]:
+    """Returns (events, error). events is a flat, time-sorted (newest
+    first) list of recent runs across all four SDLC workflows, each as
+    {stage, status, conclusion, run_url, started_at, title}. error is
+    None on success, "no_token" if GITHUB_ACTIONS_TOKEN isn't set, or
+    "unreachable" if every workflow's request failed (a real GitHub/auth
+    problem) - kept distinct from a merely-empty result (a workflow that
+    just hasn't run yet) so the admin tab can tell a configuration
+    problem apart from "nothing to show". Cached 60s so the admin tab
     doesn't hit GitHub's API on every Streamlit rerun."""
     token = os.getenv("GITHUB_ACTIONS_TOKEN")
     if not token:
-        return []
+        return [], "no_token"
 
     events = []
+    any_ok = False
     for stage_name, workflow_file in PIPELINE_WORKFLOWS:
-        for run in _fetch_runs(workflow_file, token, runs_per_workflow):
+        runs, ok = _fetch_runs(workflow_file, token, runs_per_workflow)
+        any_ok = any_ok or ok
+        for run in runs:
             events.append(
                 {
                     "stage": stage_name,
@@ -75,5 +85,8 @@ def get_pipeline_status(runs_per_workflow: int = 5) -> list[dict]:
                 }
             )
 
+    if not any_ok:
+        return [], "unreachable"
+
     events.sort(key=lambda e: e["started_at"], reverse=True)
-    return events
+    return events, None

@@ -29,7 +29,18 @@ from pydantic import Field
 
 
 def _run(args: list[str], cwd: str, timeout: int = 30) -> tuple[int, str, str]:
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    """Runs args with cwd=cwd, returning (returncode, stdout, stderr) -
+    including when cwd itself doesn't exist or isn't a directory, which
+    subprocess.run otherwise raises as an OSError instead of a normal
+    non-zero exit. Callers (GitRepoStatusTool, GitFileHistoryTool) rely
+    on always getting a tuple back so a misconfigured repo_path (e.g.
+    JOB_FINDER_INFRA_REPO_PATH pointing at a sibling checkout that
+    doesn't exist on this machine) becomes a reportable finding rather
+    than an unhandled crash mid-review."""
+    try:
+        result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except OSError as e:
+        return 1, "", f"couldn't run {args[0]} in '{cwd}': {e}"
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
@@ -103,9 +114,15 @@ class RepoFileReadTool(BaseTool):
         self, file_path: str, start_line: int = 1, line_count: int | None = None
     ) -> str:
         resolved = os.path.realpath(file_path)
+        # allowed_roots is realpath'd here too (not just at construction)
+        # so a symlinked checkout (e.g. REPO_ROOT.parent containing a
+        # symlink component) can't make a legitimate path fail this
+        # check just because the raw root string and the resolved file
+        # path disagree on which symlinks are followed.
+        allowed_roots = [os.path.realpath(root) for root in self.allowed_roots]
         if not any(
             resolved == root or resolved.startswith(root + os.sep)
-            for root in self.allowed_roots
+            for root in allowed_roots
         ):
             return f"Refused: '{file_path}' resolves outside the repos allowed for this review."
 

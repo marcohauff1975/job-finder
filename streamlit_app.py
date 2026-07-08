@@ -303,12 +303,17 @@ if st.query_params.get("admin") is not None:
                 get_pipeline_status.clear()
                 st.rerun()
 
-            events = get_pipeline_status()
-            if not events:
-                st.info(
-                    "No pipeline data available - either GITHUB_ACTIONS_TOKEN "
-                    "isn't configured, or GitHub couldn't be reached."
-                )
+            try:
+                events, status_error = get_pipeline_status()
+            except Exception:
+                events, status_error = [], "error"
+
+            if status_error == "no_token":
+                st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this tab.")
+            elif status_error in ("unreachable", "error"):
+                st.warning("Couldn't reach the GitHub Actions API just now - try Refresh in a moment.")
+            elif not events:
+                st.info("No workflow runs found yet.")
             else:
                 for event in events:
                     icon = (
