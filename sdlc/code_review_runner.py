@@ -14,20 +14,24 @@ Reads its parameters from environment variables:
     REPO               - "owner/repo"
     REVIEWER_BOT_TOKEN - the reviewer identity's own token
 
-Exit code is 0 if a review was submitted at all (whether it approved
-or requested changes) - a request-changes review is what actually
-blocks the merge under branch protection, so failing this script's
-exit code for that case would be redundant and would also make the
-Actions run itself look broken rather than "working as intended."
-Only exits nonzero if something failed before a review could be
-posted (e.g. the crew produced no result).
+Exit code is 0 if a review was successfully submitted (whether it
+approved or requested changes) - a request-changes review is what
+actually blocks the merge under branch protection, so failing this
+script's exit code for that case would be redundant and would also
+make the Actions run itself look broken rather than "working as
+intended." Exits nonzero if the crew produced no result, if review_code
+timed out, or if submitting the review to GitHub itself failed (e.g.
+auth or network error) - those are genuine failures, not verdicts.
 """
 
 import os
+import signal
 import subprocess
 import sys
 
 from sdlc.SDLC import review_code
+
+REVIEW_TIMEOUT_SECONDS = 600
 
 
 def _require(name: str) -> str:
@@ -43,6 +47,35 @@ def _sanitize_markdown_line(text: str) -> str:
     return " ".join(text.replace("`", "'").split())
 
 
+class _ReviewTimeout(Exception):
+    pass
+
+
+def _raise_timeout(signum, frame):
+    raise _ReviewTimeout(f"code_reviewer did not finish within {REVIEW_TIMEOUT_SECONDS}s")
+
+
+def _submit_review(pr_number: str, repo: str, bot_token: str, *, approve: bool, body: str) -> bool:
+    """Submit the review via gh, running it with a minimal, explicitly
+    allowlisted environment rather than the full parent environment, so no
+    other secret in os.environ (present or added later) can reach it.
+    Returns True if gh successfully posted the review."""
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "GH_TOKEN": bot_token,
+    }
+    flag = "--approve" if approve else "--request-changes"
+    proc = subprocess.run(
+        ["gh", "pr", "review", pr_number, "--repo", repo, flag, "--body", body],
+        env=env,
+    )
+    if proc.returncode != 0:
+        print(f"::error::gh pr review exited {proc.returncode} - review was not submitted")
+        return False
+    return True
+
+
 def main() -> int:
     diff_file = _require("DIFF_FILE")
     pr_number = _require("PR_NUMBER")
@@ -56,23 +89,25 @@ def main() -> int:
         return 0
 
     print("=== Running code_reviewer ===")
-    result = review_code(diff)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.alarm(REVIEW_TIMEOUT_SECONDS)
+    try:
+        result = review_code(diff)
+    except _ReviewTimeout as exc:
+        print(f"::error::{exc}")
+        return 1
+    finally:
+        signal.alarm(0)
     print(result)
 
     if result is None:
         print("::error::code_reviewer crew produced no result")
         return 1
 
-    env = {k: v for k, v in os.environ.items() if k not in ("REVIEWER_BOT_TOKEN", "ANTHROPIC_API_KEY")}
-    env["GH_TOKEN"] = bot_token
-
     if result.passed:
         body = "**Automated review by code_reviewer:** no issues found."
-        subprocess.run(
-            ["gh", "pr", "review", pr_number, "--repo", repo, "--approve", "--body", body],
-            env=env,
-            check=True,
-        )
+        if not _submit_review(pr_number, repo, bot_token, approve=True, body=body):
+            return 1
         print("Approved.")
         return 0
 
@@ -84,11 +119,8 @@ def main() -> int:
         lines.append(f"- `{location}` - {risk}")
     body = "\n".join(lines)
 
-    subprocess.run(
-        ["gh", "pr", "review", pr_number, "--repo", repo, "--request-changes", "--body", body],
-        env=env,
-        check=True,
-    )
+    if not _submit_review(pr_number, repo, bot_token, approve=False, body=body):
+        return 1
     print("Requested changes.")
     return 0
 
