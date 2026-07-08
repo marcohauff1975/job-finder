@@ -143,6 +143,320 @@ devops_fix_task:
     re-triggered.
   agent: devops_agent
 
+cto_review_task:
+  description: >
+    You are reviewing the WHOLE Job Finder project - both the app repo
+    at {app_repo_path} (crewai-starter) and the infra repo at
+    {infra_repo_path} (crewai-infra) - to decide, in the shoes of a
+    hiring manager or senior engineer who just clicked a link from a
+    resume, whether this looks like the work of someone operating at a
+    senior level. Call git_repo_status once for each repo path to see
+    the real tracked files, uncommitted changes, and recent commit
+    history in each - do not guess from assumption, and note plainly if
+    a repo path isn't a git repo at all (that's itself a finding). Use
+    each repo's tracked_files list from git_repo_status to see its real
+    top-level layout, then read_repo_file (path = repo path joined with
+    a tracked_files entry, e.g. README.md) to actually open its README
+    (or note its absence) and check for a LICENSE file. Then call
+    github_live_repo_check on {app_repo_path} to see what a real visitor
+    would actually find on GitHub right now - most importantly whether
+    the repo is actually PUBLIC, since a repo that looks perfect locally
+    is worthless linked from a resume if it's still private; also check
+    its live description/homepage/topics, since an empty description on
+    GitHub is a first-impression problem even if the README is great.
+    Judge, across both repos together: does the app repo's README
+    explain in under a minute what this is, why it exists, and what's
+    technically interesting about it; does either repo point a reader to
+    the other (someone landing on the app repo should discover the infra
+    repo exists, and vice versa); is either repo's top-level layout
+    self-explanatory to a stranger; is there leftover
+    template/scaffolding cruft, embarrassing commit messages, or TODO
+    placeholders visible in tracked files in either repo; is there a
+    LICENSE in each; is the GitHub-hosted repo actually public with a
+    real description. Tag every finding with which repo it's about -
+    use "crewai-starter (GitHub)" for anything that's specifically about
+    the live GitHub presence rather than the local checkout. Only report
+    things you actually observed via the tools above - do not speculate
+    about content you didn't open.
+  expected_output: >
+    persona="cto", a pass/fail verdict, whether any finding is blocking,
+    a list of concrete findings (if any) each with the repo
+    ("crewai-starter" or "crewai-infra"), the issue, why it matters to a
+    reviewer who has 2-5 minutes, and a specific fix (empty findings
+    list if there's nothing to flag), and a skill_signal covering the
+    project as a whole: one sentence on what the combined first
+    impression across both repos tells a hiring manager about Marco's
+    ability to communicate and package technical work - grounded only in
+    what you opened, never inflated. Return exactly one JSON object with
+    these top-level fields only: persona, passed, blocking, findings (a
+    list, possibly empty), skill_signal. Never return a single finding
+    as the top-level object - every finding belongs nested inside the
+    findings list, not at the top level.
+  agent: cto
+
+aws_review_task:
+  description: >
+    Review the Job Finder project's infrastructure as an AWS Lead
+    Engineer judging whether it is production-grade. The IaC lives in
+    the infra repo at {infra_repo_path} (crewai-infra) - call
+    git_repo_status there and use its tracked_files list to find any
+    Terraform/CloudFormation/CDK files, then read_repo_file (path =
+    {infra_repo_path} joined with the tracked_files entry) to actually
+    open them; note plainly if {infra_repo_path} isn't a git repo at all
+    (that's itself a blocking finding for infrastructure code). Check:
+    is state managed remotely (a committed .tfstate file is a real,
+    blocking finding, not a style nit), are IAM policies scoped to least
+    privilege rather than wildcard, are security groups free of
+    unnecessarily open ingress (0.0.0.0/0 on sensitive ports), are
+    variables used instead of hardcoded values, and is there any CI/CD
+    actually applying this IaC rather than it only ever being run by
+    hand - check for GitHub Actions workflow files in both
+    {infra_repo_path} and {app_repo_path}. Use git_file_history in
+    {infra_repo_path} on any credential-shaped file you find (.pem,
+    .key, credentials, tfvars with secrets) to check whether it was ever
+    committed, even if it's gitignored or deleted now. Then call
+    aws_live_setup_check to see the REAL, currently-running AWS account
+    - not what the Terraform code claims - and compare the two directly:
+    do the live Lightsail instance's actual open ports match
+    aws_lightsail_instance_public_ports in main.tf; is there any live
+    resource (a second instance, an unattached static IP, an old
+    snapshot) that main.tf doesn't define at all; does the live IAM
+    user's attached/inline policies match what you'd expect from
+    least-privilege IaC practice, or is there a broad policy (e.g.
+    AdministratorAccess) attached by hand that Terraform never touches -
+    that mismatch between code and reality is itself a blocking finding,
+    since it means the code review alone would have missed it entirely;
+    and does the live AWS Budget match budget_amount in budget.tf. Tag
+    every finding with which repo it's in - use "crewai-infra (live AWS
+    account)" as the repo for anything that's a live-setup finding with
+    no corresponding Terraform file to point at.
+  expected_output: >
+    persona="aws_lead_engineer", a pass/fail verdict, whether any
+    finding is blocking, a list of concrete findings (if any) each with
+    the repo, the issue, why it matters, and a specific fix, and a
+    skill_signal: one sentence on what the actual IaC AND the real,
+    live AWS setup together demonstrate (or undercut) about Marco's AWS
+    ability - grounded only in what you read and what
+    aws_live_setup_check actually returned, never inflated. Return
+    exactly one JSON object with these top-level fields only: persona,
+    passed, blocking, findings (a list, possibly empty), skill_signal.
+    Never return a single finding as the top-level object - every
+    finding belongs nested inside the findings list, not at the top
+    level.
+  agent: aws_lead_engineer
+
+python_review_task:
+  description: >
+    Review the Job Finder project's Python code as a Python Lead
+    Engineer. The application code lives in the app repo at
+    {app_repo_path} (crewai-starter) - call git_repo_status there and use
+    its tracked_files list to see the real module/package layout (this
+    list is already free of venv/, __pycache__, and other build
+    artifacts if they're properly gitignored - their absence from
+    tracked_files, or presence, is itself the finding), then
+    read_repo_file (path = {app_repo_path} joined with a tracked_files
+    entry) to open a representative sample of the actual source files,
+    focusing on the main application code, not generated/vendored
+    directories. Check for: sensible package structure, type hints, a
+    real pinned dependency manifest, linting/formatting config
+    (ruff/black/mypy), presence of any tests, idiomatic error handling
+    versus bare except or print-debugging left in, and whether build
+    artifacts (venv/, __pycache__/, .pyc, .DS_Store) are tracked in git -
+    check tracked_files for this, not just what's on disk. Also call
+    git_repo_status once on {infra_repo_path} to confirm its
+    tracked_files don't include stray Python that should live in the app
+    repo instead. Tag every finding with which repo it's in.
+  expected_output: >
+    persona="python_lead_engineer", a pass/fail verdict, whether any
+    finding is blocking, a list of concrete findings (if any) each with
+    the repo, the issue, why it matters to an experienced Python
+    reviewer, and a specific fix, and a skill_signal: one sentence on
+    what the actual source you opened demonstrates (or undercuts) about
+    Marco's Python ability - grounded only in what you read, never
+    inflated. Return exactly one JSON object with these top-level fields
+    only: persona, passed, blocking, findings (a list, possibly empty),
+    skill_signal. Never return a single finding as the top-level object
+    - every finding belongs nested inside the findings list, not at the
+    top level.
+  agent: python_lead_engineer
+
+data_review_task:
+  description: >
+    Review the Job Finder project's data handling as a Data Engineer.
+    Call git_repo_status on the app repo at {app_repo_path}
+    (crewai-starter, where the SQLite auth DB and per-user file storage
+    live) and check its tracked_files list for any database files, data
+    exports, or per-user/customer data directories that are actually
+    tracked in git - not just present on disk. Use read_repo_file (path
+    = {app_repo_path} joined with a tracked_files entry) to check whether
+    config/schema is separated from code and whether there is any data
+    validation. Also check the infra repo at
+    {infra_repo_path} for any tracked Terraform state or output files
+    that could contain real resource data. If you find a database file,
+    data directory, state file, or anything that could contain real user
+    records or PII tracked in either repo, use git_file_history (in that
+    same repo) on it to confirm whether it's in history even if
+    gitignored now - this is a serious, blocking finding, not a nitpick.
+    Tag every finding with which repo it's in.
+  expected_output: >
+    persona="data_engineer", a pass/fail verdict, whether any finding is
+    blocking, a list of concrete findings (if any) each with the repo,
+    the issue, why it matters, and a specific fix, and a skill_signal:
+    one sentence on what the actual data/schema handling you found
+    demonstrates (or undercuts) about Marco's data engineering ability -
+    grounded only in what you read, never inflated. Return exactly one
+    JSON object with these top-level fields only: persona, passed,
+    blocking, findings (a list, possibly empty), skill_signal. Never
+    return a single finding as the top-level object - every finding
+    belongs nested inside the findings list, not at the top level.
+  agent: data_engineer
+
+ai_review_task:
+  description: >
+    Review the Job Finder project's AI agent design as an AI Engineer.
+    The agent/prompt/orchestration code lives in the app repo at
+    {app_repo_path} (crewai-starter) - call git_repo_status there and use
+    its tracked_files list to find it, then read_repo_file (path =
+    {app_repo_path} joined with a tracked_files entry) to open it (for
+    example the CrewAI agent and task definitions, including this very
+    sdlc/ panel). Judge whether
+    the agent design is documented and structured rather than ad hoc,
+    whether model/API keys are loaded only from environment variables
+    rather than inline, whether there's any evaluation or guardrail
+    against bad model output, and whether the orchestration reflects
+    real engineering judgment about cost/latency (e.g. cheaper models
+    for lower-stakes steps) rather than one model used everywhere
+    without reasoning. {infra_repo_path} is Terraform-only and not in
+    scope for this review unless you find AI-related code there too.
+  expected_output: >
+    persona="ai_engineer", a pass/fail verdict, whether any finding is
+    blocking, a list of concrete findings (if any) each with the repo,
+    the issue, why it matters, and a specific fix, and a skill_signal:
+    one sentence on what the actual agent/orchestration code you opened
+    demonstrates (or undercuts) about Marco's AI engineering ability -
+    grounded only in what you read, never inflated. Return exactly one
+    JSON object with these top-level fields only: persona, passed,
+    blocking, findings (a list, possibly empty), skill_signal. Never
+    return a single finding as the top-level object - every finding
+    belongs nested inside the findings list, not at the top level.
+  agent: ai_engineer
+
+security_review_task:
+  description: >
+    CRITICAL RULE, applies to everything below: if you find an actual
+    secret, password, key, or credential VALUE, never quote or repeat
+    that literal value anywhere in your output - not in issue, fix, or
+    skill_signal. Describe where it is (file, line, variable/constant
+    name) and what kind of value it is, but write the value itself as
+    [REDACTED]. Your output feeds a CTO synthesis step and a public
+    LinkedIn activity log, neither of which should ever end up
+    containing the literal secret - reporting that it exists and
+    exactly where is enough to act on; repeating it just creates a
+    second exposure. Review the WHOLE Job Finder project as a Security
+    Engineer with veto power over the whole panel's verdict, covering
+    BOTH the app repo at
+    {app_repo_path} (crewai-starter) and the infra repo at
+    {infra_repo_path} (crewai-infra) - a leak in either repo blocks
+    publication of the project. Call git_repo_status once for each repo
+    path to get its real tracked-files list and recent commit history;
+    note plainly if a repo path isn't a git repo at all. For every file
+    in either repo that looks like it could be a secret, private key,
+    credential, environment file, or state file (.env - not
+    .env.example, .pem, .key, *.tfstate, credentials.json, or similar),
+    check whether it appears in that repo's tracked_files, AND run
+    git_file_history on it in that same repo regardless - a file that's
+    gitignored now may still be sitting in history from before the
+    .gitignore rule existed, which needs a history rewrite, not just
+    deletion. Use read_repo_file to open each repo's actual .gitignore
+    (path = repo path joined with ".gitignore") and confirm it really
+    excludes what it should. Also open the auth-related source file(s)
+    in {app_repo_path} (via its tracked_files list and read_repo_file)
+    and check for
+    plaintext password storage, weak session handling, or missing rate
+    limiting. Then call aws_live_setup_check to see the REAL, currently
+    running AWS account this project deploys to, and scrutinize it the
+    way you'd scrutinize code: is any IAM user carrying a broad managed
+    policy (e.g. AdministratorAccess) rather than least-privilege - flag
+    this as blocking, since an overprivileged deploy credential is a
+    genuine production risk regardless of how clean the Terraform code
+    looks; are the live Lightsail instance's actual open ports limited
+    to what's needed (22/80/443), or is something wider open than
+    main.tf's aws_lightsail_instance_public_ports claims; is there any
+    live resource that isn't accounted for in code at all. A mismatch
+    between what the Terraform code claims and what's actually running
+    is itself worth flagging even when not blocking on its own, since it
+    means infra-as-code isn't the full source of truth here. Also call
+    github_live_repo_check on {app_repo_path} to see GitHub's own
+    security posture for this repo: are Dependabot alerts and secret
+    scanning actually turned on (both are free once a repo is public,
+    but neither is on by default), and are there any currently-open
+    Dependabot or secret-scanning alerts - GitHub's own scanners are an
+    independent second opinion alongside your own tracked-files/history
+    checks, not a replacement for them. Treat any confirmed leaked
+    secret, key, PII, overprivileged live credential, or open
+    GitHub-flagged alert as blocking, full stop - regardless of how good
+    everything else looks. Tag every finding with which repo it's in -
+    use "crewai-infra (live AWS account)" for a live-AWS-setup finding
+    with no corresponding Terraform file to point at, and "crewai-starter
+    (GitHub)" for anything specifically about the live GitHub presence.
+  expected_output: >
+    persona="security_engineer", a pass/fail verdict, a list of concrete
+    findings (if any) each with the repo, the issue, why it matters, and
+    a specific fix - with blocking set true if you found anything
+    disqualifying in either repo or in the live AWS account - and a
+    skill_signal: one sentence on what the actual security posture you
+    found, across both repos' code AND the real live AWS account,
+    demonstrates about Marco's ability, which should be positive only if
+    you genuinely found nothing wrong anywhere - never inflated. Return
+    exactly one JSON object with these top-level fields only: persona,
+    passed, blocking, findings (a list, possibly empty), skill_signal.
+    Never return a single finding as the top-level object - every
+    finding belongs nested inside the findings list, not at the top
+    level.
+  agent: security_engineer
+
+readiness_synthesis_task:
+  description: >
+    CRITICAL RULE: if any finding you're synthesizing (especially from
+    the Security Engineer) references an actual secret/password/key
+    value, never quote or repeat that literal value in your verdict or
+    blocking_issues - write [REDACTED] in its place. This verdict feeds
+    a public LinkedIn activity log; the literal value must never appear
+    in it. You are the CTO chairing this panel, and this whole review exists
+    because the Job Finder project - the app repo at {app_repo_path}
+    (crewai-starter) AND the infra repo at {infra_repo_path}
+    (crewai-infra), always assessed together as one project - is Marco's
+    commercial for his own technical abilities, linked straight from his
+    resume. You already did your own first-impression review of both
+    repos above. Now read the findings AND skill_signal from the AWS
+    Lead Engineer, Python Lead Engineer, Data Engineer, AI Engineer, and
+    Security Engineer tasks (given to you as context) and synthesize one
+    final verdict for the project as a whole. The Security Engineer's
+    findings marked blocking always make the overall verdict not-ready,
+    no matter what the other four say, regardless of which repo they're
+    in. Pull every blocking finding from every persona, from both repos,
+    into one merged blocking_issues list, each still tagged with its
+    repo. Pick the 3-5 highest-leverage quick_wins across all findings in
+    both repos - the changes that most improve the pitch for the effort
+    involved. Then build skills_showcase: take every persona's
+    skill_signal (including your own) that is genuinely positive and
+    turn it into a specific, evidence-backed talking point a hiring
+    manager would remember - e.g. "least-privilege IAM and remote
+    Terraform state in the infra repo show production AWS judgment, not
+    just a working demo" rather than generic praise like "good code
+    quality." Every entry must trace back to something a panelist
+    actually observed in one of the two repos - never invent or inflate
+    one, and skip any persona whose signal wasn't genuinely positive
+    rather than manufacturing one for them.
+  expected_output: >
+    Whether the whole project (both repos) is ready_to_publish, a
+    one-paragraph verdict explaining the single biggest reason, the full
+    blocking_issues list merged from every persona and every repo, 3-5
+    quick_wins, and skills_showcase: the evidence-backed list of
+    specific technical abilities this project currently demonstrates to
+    a hiring manager.
+  agent: cto
+
 rollback_task:
   description: >
     The production smoke test for commit {new_commit} failed with:

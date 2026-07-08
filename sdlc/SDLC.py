@@ -30,6 +30,7 @@ constants below):
 
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -51,6 +52,9 @@ from sdlc.tools.devops_ops import (
 )
 from sdlc.tools.ux_inspector import UXPageInspectorTool
 from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
+from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
+from sdlc.tools.aws_audit import AWSLiveSetupTool
+from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
 
 load_dotenv()
 
@@ -114,6 +118,29 @@ class DevOpsFixResult(BaseModel):
     workflow_retriggered: bool
 
 
+class ReadinessFinding(BaseModel):
+    repo: str  # e.g. "crewai-starter", "crewai-infra", "crewai-infra (live AWS account)", "crewai-starter (GitHub)"
+    issue: str
+    why_it_matters: str
+    fix: str
+
+
+class PersonaReviewResult(BaseModel):
+    persona: str
+    passed: bool
+    blocking: bool = False
+    findings: list[ReadinessFinding] = []
+    skill_signal: str = ""
+
+
+class ReadinessReviewResult(BaseModel):
+    ready_to_publish: bool
+    verdict: str
+    blocking_issues: list[ReadinessFinding] = []
+    quick_wins: list[str] = []
+    skills_showcase: list[str] = []
+
+
 # --- Demo inputs ----------------------------------------------------------
 # Only used when running this file directly (python SDLC.py) for a
 # quick wiring test.
@@ -122,6 +149,22 @@ DEMO_DIFF = "diff --git a/example.py b/example.py\n+print('hello')\n"
 DEMO_CHANGE_SUMMARY = "Example change for testing the SDLC crew wiring."
 DEMO_FLOW_TO_TEST = "Load the home page and confirm it renders."
 DEMO_SERVICE_URL = "https://yourmagicaljobfinder.online"
+
+# The Job Finder project is always these two repos together - the app
+# repo (this one) and its sibling infra repo. Not user-configurable
+# beyond overriding these paths; the panel's personas/tools are written
+# against this specific pairing, not an arbitrary repo.
+JOB_FINDER_APP_REPO_PATH = str(REPO_ROOT)
+JOB_FINDER_INFRA_REPO_PATH = str(REPO_ROOT.parent / "crewai-infra")
+
+# Same folder/format Marco already exports to by hand after a Claude
+# Code session worth remembering - see the HOW-TO and existing examples
+# in that folder. The weekly LinkedIn post generator scans this folder
+# for new files each run, so writing here is the only integration point
+# needed; nothing here ever posts to LinkedIn itself.
+LINKEDIN_ACTIVITY_LOG_DIR = (
+    REPO_ROOT.parent / "AI linkedin Posts" / "linkedin blogs" / "code-activity"
+)
 
 # --- Load agent/task definitions from the config/ folder -----------------
 
@@ -299,6 +342,123 @@ devops_fix_crew = Crew(
 )
 
 
+# --- Technology Excellence panel: 6 agents + 7 tasks + crew ------------
+# Scoped specifically to the Job Finder project as a whole - always
+# BOTH the app repo (crewai-starter) and its sibling infra repo
+# (crewai-infra) together, never just one - not a general-purpose
+# "review any repo" tool. Job Finder is Marco's portfolio piece, linked
+# directly from his resume, so this panel's job is broader than
+# catching red flags: it's meant to work out whether the project
+# functions as a credible, evidence-backed commercial for his technical
+# abilities, and to say plainly what it currently demonstrates (see
+# skill_signal/skills_showcase below) as well as what would break the
+# pitch - in either repo. Not a per-commit gate like code_reviewer -
+# this runs on demand, before (re-)publishing. All six run on
+# claude_high: a wrong call here is either a missed leak
+# (security_engineer) or an embarrassing/overstated public claim, so
+# quality matters more than cost for an occasional review. Every
+# persona shares the same read-only toolset (real git status/tracked
+# files, whether a given path was ever committed, and file reading) so
+# findings are grounded in what's actually in each repo, not
+# assumption. Uses RepoFileReadTool (see tools/repo_audit.py), not
+# crewai_tools' FileReadTool/DirectoryReadTool - those are sandboxed to
+# os.getcwd(), which would silently block reading crewai-infra (a
+# sibling directory, not the cwd), and DirectoryReadTool's unfiltered
+# os.walk would dump crewai-starter's entire committed-but-gitignored
+# venv/ (30k+ files) into a single tool result. git_repo_status's
+# tracked_files (git ls-files) is the bounded, .gitignore-aware
+# listing instead.
+
+_readiness_tools = [
+    GitRepoStatusTool(),
+    GitFileHistoryTool(),
+    RepoFileReadTool(allowed_roots=[str(REPO_ROOT.parent)]),
+]
+
+# aws_lead_engineer and security_engineer also get aws_live_setup_check
+# (sdlc/tools/aws_audit.py) - the only two personas who need to compare
+# the real, currently-running AWS account against what the Terraform
+# code in crewai-infra claims, since drift between the two (e.g. a
+# policy attached by hand) is invisible to a code-only review.
+_aws_live_tools = _readiness_tools + [AWSLiveSetupTool()]
+
+# cto and security_engineer also get github_live_repo_check (sdlc/tools/
+# github_audit.py) - what a real visitor/GitHub itself actually sees
+# (is the repo even public, are Dependabot/secret-scanning turned on)
+# rather than only local git state, which can't show any of that.
+_cto_tools = _readiness_tools + [GitHubLiveRepoCheckTool()]
+_security_tools = _aws_live_tools + [GitHubLiveRepoCheckTool()]
+
+cto = Agent(config=agents_config["cto"], llm=claude_high, tools=_cto_tools, verbose=True)
+aws_lead_engineer = Agent(
+    config=agents_config["aws_lead_engineer"], llm=claude_high, tools=_aws_live_tools, verbose=True
+)
+python_lead_engineer = Agent(
+    config=agents_config["python_lead_engineer"], llm=claude_high, tools=_readiness_tools, verbose=True
+)
+data_engineer = Agent(
+    config=agents_config["data_engineer"], llm=claude_high, tools=_readiness_tools, verbose=True
+)
+ai_engineer = Agent(
+    config=agents_config["ai_engineer"], llm=claude_high, tools=_readiness_tools, verbose=True
+)
+security_engineer = Agent(
+    config=agents_config["security_engineer"], llm=claude_high, tools=_security_tools, verbose=True
+)
+
+cto_review_task = Task(
+    config=tasks_config["cto_review_task"], agent=cto, output_pydantic=PersonaReviewResult
+)
+aws_review_task = Task(
+    config=tasks_config["aws_review_task"], agent=aws_lead_engineer, output_pydantic=PersonaReviewResult
+)
+python_review_task = Task(
+    config=tasks_config["python_review_task"],
+    agent=python_lead_engineer,
+    output_pydantic=PersonaReviewResult,
+)
+data_review_task = Task(
+    config=tasks_config["data_review_task"], agent=data_engineer, output_pydantic=PersonaReviewResult
+)
+ai_review_task = Task(
+    config=tasks_config["ai_review_task"], agent=ai_engineer, output_pydantic=PersonaReviewResult
+)
+security_review_task = Task(
+    config=tasks_config["security_review_task"],
+    agent=security_engineer,
+    output_pydantic=PersonaReviewResult,
+)
+
+readiness_synthesis_task = Task(
+    config=tasks_config["readiness_synthesis_task"],
+    agent=cto,
+    context=[
+        cto_review_task,
+        aws_review_task,
+        python_review_task,
+        data_review_task,
+        ai_review_task,
+        security_review_task,
+    ],
+    output_pydantic=ReadinessReviewResult,
+)
+
+technology_excellence_crew = Crew(
+    agents=[cto, aws_lead_engineer, python_lead_engineer, data_engineer, ai_engineer, security_engineer],
+    tasks=[
+        cto_review_task,
+        aws_review_task,
+        python_review_task,
+        data_review_task,
+        ai_review_task,
+        security_review_task,
+        readiness_synthesis_task,
+    ],
+    process=Process.sequential,
+    verbose=True,
+)
+
+
 def review_code(diff: str) -> CodeReviewResult | None:
     """Run the code review crew over a diff and return the structured
     result, or None if it failed."""
@@ -401,6 +561,83 @@ def rollback(
     }
     result = rollback_crew.kickoff(inputs=inputs)
     return result.pydantic if result.pydantic else None
+
+
+def _write_linkedin_activity_log(result: ReadinessReviewResult) -> Path:
+    """Writes today's panel run into LINKEDIN_ACTIVITY_LOG_DIR, in the
+    exact format Marco already exports by hand (see that folder's own
+    HOW-TO-export-from-claude-code.md): a dated file, third person,
+    under 20 lines, ending in a CONFIDENTIAL yes/no flag - so the weekly
+    LinkedIn post generator picks this run up automatically the same
+    way it picks up a manual session export, no separate integration
+    needed. One file per day: a same-day rerun overwrites it, which is
+    correct - each day's file should reflect the project's latest
+    state, not accumulate stale duplicate entries. blocking_issues
+    force CONFIDENTIAL: yes, since an unresolved leak or overprivileged
+    credential isn't safe to summarize publicly yet, even in outline
+    form, until it's actually fixed."""
+    today = date.today().isoformat()
+    path = LINKEDIN_ACTIVITY_LOG_DIR / f"{today}-tech-excellence-review.md"
+
+    decisions = "\n".join(f"- {point}" for point in result.skills_showcase) or (
+        "- No standout technical signal yet - see quick wins instead."
+    )
+    confidential = "yes" if result.blocking_issues else "no"
+
+    content = f"""# {today} — Job Finder: Technology Excellence readiness review
+
+Marco ran his Technology Excellence panel - six AI personas (CTO, AWS \
+Lead, Python Lead, Data Engineer, AI Engineer, Security Engineer) - \
+against both Job Finder repos (the app and its infra) and the real, \
+live AWS account behind them, to check whether the project is ready to \
+publish and link from his resume.
+
+## The task
+
+Confirm the project reads as a credible, evidence-backed demonstration \
+of Marco's technical abilities to a hiring manager who only has a few \
+minutes to look - not just that nothing is broken.
+
+## Key decisions or approaches
+
+{decisions}
+
+## Why it matters
+
+{result.verdict}
+
+CONFIDENTIAL: {confidential}
+"""
+    LINKEDIN_ACTIVITY_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    return path
+
+
+def review_project_readiness(
+    app_repo_path: str = JOB_FINDER_APP_REPO_PATH,
+    infra_repo_path: str = JOB_FINDER_INFRA_REPO_PATH,
+) -> ReadinessReviewResult | None:
+    """Run the Technology Excellence panel (CTO, AWS/Python/Data/AI
+    leads, Security) over the WHOLE Job Finder project - always both
+    the app repo (crewai-starter, app_repo_path) and its infra repo
+    (crewai-infra, infra_repo_path) together, never just one - and
+    return the CTO's synthesized verdict on whether the project as a
+    whole reads as a credible commercial for Marco's technical
+    abilities: is it ready_to_publish, what's blocking (each finding
+    tagged with which repo it's in), and what it already demonstrates
+    (skills_showcase). Returns None if the crew failed to produce a
+    result. Both paths must be real git checkouts - the panel's tools
+    read each repo's actual tracked files and history, not just what's
+    on disk. On a successful run, also writes today's result into the
+    LinkedIn activity-log pipeline (_write_linkedin_activity_log) -
+    this always happens, not just on request, since that's the whole
+    point of running this panel regularly."""
+    inputs = {"app_repo_path": app_repo_path, "infra_repo_path": infra_repo_path}
+    result = technology_excellence_crew.kickoff(inputs=inputs)
+    readiness_result = result.pydantic if result.pydantic else None
+    if readiness_result is not None:
+        _write_linkedin_activity_log(readiness_result)
+    return readiness_result
 
 
 def fix_deploy_failure(
