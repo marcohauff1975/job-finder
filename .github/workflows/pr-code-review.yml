@@ -7,6 +7,12 @@ name: PR code review
 # author to approve it, so this can't run as the default GITHUB_TOKEN
 # or whichever account opened the PR - it needs REVIEWER_BOT_TOKEN, a
 # token belonging to that separate account.
+#
+# The review/fix loop is capped at 2 rounds of requested changes (see
+# MAX_CHANGE_REQUESTS in code_review_runner.py) - past that, the next
+# run approves regardless of remaining findings so the PR isn't stuck
+# forever, and any approval (earned or cap-triggered) is immediately
+# followed by an automatic squash-merge into the base branch.
 on:
   pull_request:
     branches: [main]
