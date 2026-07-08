@@ -27,7 +27,9 @@ import time
 from datetime import date
 from pathlib import Path
 
+import boto3
 import streamlit as st
+from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
 
 from auth import AuthManager, delete_user, set_user_password
@@ -41,8 +43,6 @@ from reporting import (
     record_cv_generated,
     set_user_tier,
 )
-
-ADMIN_PASSWORD = "REDACTED-ROTATED"
 from job_search import (
     FORMAT_TEMPLATES,
     build_tailored_docx_bytes,
@@ -66,6 +66,26 @@ USERS_DIR = Path(__file__).parent / "users"
 DAILY_SEARCH_LIMIT = 5
 DAILY_RESEARCH_LIMIT = 1
 UNLIMITED_USER = "marco.hauff@gmail.com"
+
+ADMIN_SECRET_NAME = "job-finder/admin-password"
+AWS_REGION = "eu-north-1"
+
+
+@st.cache_resource
+def get_admin_password() -> str | None:
+    """Fetches the admin-dashboard password from AWS Secrets Manager
+    (see crewai-infra/secrets.tf) - cached for the life of the process
+    so this only calls Secrets Manager once, not on every Streamlit
+    rerun. Uses the same default AWS credential chain (AWS_ACCESS_KEY_ID
+    / AWS_SECRET_ACCESS_KEY in .env) the app already uses for SES.
+    Returns None if the secret can't be fetched, in which case the admin
+    dashboard simply can't be unlocked - there is no hardcoded
+    fallback."""
+    try:
+        client = boto3.client("secretsmanager", region_name=AWS_REGION)
+        return client.get_secret_value(SecretId=ADMIN_SECRET_NAME)["SecretString"]
+    except (BotoCoreError, ClientError):
+        return None
 
 
 def _get_app_version() -> str:
@@ -169,7 +189,10 @@ if st.query_params.get("admin") is not None:
     if not st.session_state.get("admin_authed"):
         password = st.text_input("Password", type="password", key="admin_password")
         if st.button("Enter"):
-            if password == ADMIN_PASSWORD:
+            admin_password = get_admin_password()
+            if admin_password is None:
+                st.error("Admin password unavailable (couldn't reach Secrets Manager).")
+            elif password == admin_password:
                 st.session_state["admin_authed"] = True
                 st.rerun()
             else:
