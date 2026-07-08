@@ -57,6 +57,7 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
+from sdlc_agent_steps import get_agent_activity
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 from streamlit_autorefresh import st_autorefresh
 
@@ -350,6 +351,44 @@ if st.query_params.get("admin") is not None:
             else:
                 st.markdown(f"**#{pr_info['number']}** — {pr_info['title']} ([view PR]({pr_info['url']}))")
                 st.markdown(render_pr_flow_svg(stages), unsafe_allow_html=True)
+
+            st.markdown("#### Live SDLC agent activity")
+            st.caption(
+                "Real-time step status for prod_tester/rollback_agent (inside "
+                "the deploy job) and devops_agent's own auto-fix runs. GitHub "
+                "can't stream a job's log while it's still running, so the "
+                "step list below is genuinely live, but each job's full agent "
+                "trace (what it actually reasoned/did) only appears once that "
+                "job finishes."
+            )
+            try:
+                agent_runs, agent_error = get_agent_activity()
+            except Exception:
+                agent_runs, agent_error = [], "error"
+
+            if agent_error == "no_token":
+                st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this.")
+            elif agent_error in ("unreachable", "error"):
+                st.warning("Couldn't reach the GitHub API just now - it'll retry automatically.")
+            elif not agent_runs:
+                st.info("No agent runs found yet.")
+            else:
+                step_icons = {"completed": "✅", "in_progress": "🔄", "queued": "⏳"}
+                for run in agent_runs:
+                    conclusion_suffix = f", {run['run_conclusion']}" if run["run_conclusion"] else ""
+                    st.markdown(
+                        f"**{run['workflow']}** — [run #{run['run_id']}]({run['run_url']}) "
+                        f"({run['run_status']}{conclusion_suffix})"
+                    )
+                    for step in run["steps"]:
+                        icon = step_icons.get(step["status"], "•")
+                        if step["conclusion"] == "failure":
+                            icon = "❌"
+                        st.caption(f"{icon} {step['name']}")
+                    if run.get("trace"):
+                        with st.expander("Agent trace"):
+                            st.code(run["trace"], language=None)
+                    st.markdown("---")
     st.stop()
 
 st.markdown(
