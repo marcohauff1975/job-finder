@@ -2,13 +2,16 @@ name: SDLC Pipeline
 
 # One combined pipeline, replacing the previously separate "PR code
 # review" and "AI prod flow" workflows: every PR still gets an
-# automated review (code_review job, unchanged from before), and
-# merging into main now automatically deploys and tests in production
-# (deploy job, same steps "AI prod flow" used to run manually) instead
-# of requiring a separate manual "Run workflow" click. The two jobs
-# never run in the same execution - pull_request and push are
-# different trigger events, so each run only has the job matching its
-# own event's `if:` actually execute; the other shows as skipped.
+# automated review (code_review job, unchanged from before). Whether
+# merging into main also auto-deploys depends on the AUTO_DEPLOY_ON_MERGE
+# repo variable (see toggle-demo-mode.command) - off by default for
+# regular development (deploy stays a manual "Run workflow" click, via
+# workflow_dispatch below, same as the old separate "AI prod flow"),
+# on for demos so a merge cascades straight through to production
+# without anyone touching the Actions tab. The two triggered-by-event
+# jobs never run in the same execution - pull_request and push are
+# different events, so each run only has the job matching its own
+# event's `if:` actually execute; the other shows as skipped.
 # Sequencing (review before deploy) is enforced by main's branch
 # protection requiring an approving review before a merge can happen
 # at all, not by an explicit `needs:` here.
@@ -18,6 +21,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
+  workflow_dispatch:
 
 env:
   AWS_REGION: eu-north-1
@@ -58,7 +62,9 @@ jobs:
         run: python -m sdlc.code_review_runner
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY_ON_MERGE == 'true')
     runs-on: ubuntu-latest
     environment: production
     steps:
