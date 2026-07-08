@@ -57,6 +57,7 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
+from sdlc_status import STATUS_ICONS, get_pipeline_status
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
 
@@ -198,94 +199,135 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
-        report = get_report()
-        st.metric("Registered users", report["registered_users"])
-        st.metric("CVs generated", report["cvs_total"])
-        st.caption(
-            f"{report['cvs_tailored']} tailored for a specific job, "
-            f"{report['cvs_format']} format rebuilds."
-        )
+        tab_overview, tab_sdlc = st.tabs(["Overview", "SDLC Pipeline"])
 
-        serper_balance = get_serper_balance()
-        st.metric(
-            "Serper credits remaining",
-            serper_balance if serper_balance is not None else "unavailable",
-        )
-
-        st.metric("Anthropic spend (estimated)", f"${get_estimated_anthropic_cost():.2f}")
-        st.caption(
-            "Estimated from actual token usage × published Sonnet pricing - "
-            "Anthropic doesn't expose a real balance to a regular API key."
-        )
-
-        st.markdown("#### Per user")
-        st.caption(
-            "Tier controls which Claude model each user's agents use - see "
-            "job_search.py's TIER_HIGH_MODEL_AGENTS. Test accounts (@example.com) "
-            "always run on free regardless of what's set here."
-        )
-        edited_rows = st.data_editor(
-            [
-                {
-                    "Email": row["email"],
-                    "Tailored for a job": row["tailored"],
-                    "Format rebuilds": row["format"],
-                    "Total": row["total"],
-                    "Tier": row["tier"],
-                }
-                for row in report["per_user"]
-            ],
-            column_config={
-                "Tier": st.column_config.SelectboxColumn(
-                    options=list(VALID_TIERS), required=True
-                ),
-            },
-            disabled=["Email", "Tailored for a job", "Format rebuilds", "Total"],
-            use_container_width=True,
-            hide_index=True,
-            key="tier_editor",
-        )
-        if st.button("Save tier changes"):
-            for row in edited_rows:
-                set_user_tier(row["Email"], row["Tier"])
-            st.success("Tiers saved.")
-            st.rerun()
-
-        user_emails = [row["email"] for row in report["per_user"]]
-
-        st.markdown("#### Reset a user's password")
-        with st.form("admin_reset_password_form"):
-            reset_email = st.selectbox("User", user_emails, key="reset_pw_user")
-            new_password = st.text_input(
-                "New password", type="password", key="reset_pw_value"
+        with tab_overview:
+            report = get_report()
+            st.metric("Registered users", report["registered_users"])
+            st.metric("CVs generated", report["cvs_total"])
+            st.caption(
+                f"{report['cvs_tailored']} tailored for a specific job, "
+                f"{report['cvs_format']} format rebuilds."
             )
-            if st.form_submit_button("Reset password"):
-                if len(new_password) < 4:
-                    st.error("Password must be at least 4 characters.")
-                else:
-                    set_user_password(reset_email, new_password)
-                    st.success(f"Password reset for {reset_email}.")
 
-        st.markdown("#### Delete a user")
-        st.caption(
-            "Removes the account and all their data (resume, tailored resumes, "
-            "search history) - this can't be undone."
-        )
-        with st.form("admin_delete_user_form"):
-            delete_email = st.selectbox("User", user_emails, key="delete_user_select")
-            confirm_email = st.text_input(
-                "Type the user's email to confirm deletion", key="delete_confirm"
+            serper_balance = get_serper_balance()
+            st.metric(
+                "Serper credits remaining",
+                serper_balance if serper_balance is not None else "unavailable",
             )
-            if st.form_submit_button("Delete user"):
-                if delete_email == UNLIMITED_USER:
-                    st.error("Can't delete the admin account.")
-                elif confirm_email != delete_email:
-                    st.error("Confirmation email doesn't match - user not deleted.")
-                else:
-                    delete_user(delete_email)
-                    delete_user_data(delete_email)
-                    st.success(f"Deleted {delete_email} and all their data.")
-                    st.rerun()
+
+            st.metric("Anthropic spend (estimated)", f"${get_estimated_anthropic_cost():.2f}")
+            st.caption(
+                "Estimated from actual token usage × published Sonnet pricing - "
+                "Anthropic doesn't expose a real balance to a regular API key."
+            )
+
+            st.markdown("#### Per user")
+            st.caption(
+                "Tier controls which Claude model each user's agents use - see "
+                "job_search.py's TIER_HIGH_MODEL_AGENTS. Test accounts (@example.com) "
+                "always run on free regardless of what's set here."
+            )
+            edited_rows = st.data_editor(
+                [
+                    {
+                        "Email": row["email"],
+                        "Tailored for a job": row["tailored"],
+                        "Format rebuilds": row["format"],
+                        "Total": row["total"],
+                        "Tier": row["tier"],
+                    }
+                    for row in report["per_user"]
+                ],
+                column_config={
+                    "Tier": st.column_config.SelectboxColumn(
+                        options=list(VALID_TIERS), required=True
+                    ),
+                },
+                disabled=["Email", "Tailored for a job", "Format rebuilds", "Total"],
+                use_container_width=True,
+                hide_index=True,
+                key="tier_editor",
+            )
+            if st.button("Save tier changes"):
+                for row in edited_rows:
+                    set_user_tier(row["Email"], row["Tier"])
+                st.success("Tiers saved.")
+                st.rerun()
+
+            user_emails = [row["email"] for row in report["per_user"]]
+
+            st.markdown("#### Reset a user's password")
+            with st.form("admin_reset_password_form"):
+                reset_email = st.selectbox("User", user_emails, key="reset_pw_user")
+                new_password = st.text_input(
+                    "New password", type="password", key="reset_pw_value"
+                )
+                if st.form_submit_button("Reset password"):
+                    if len(new_password) < 4:
+                        st.error("Password must be at least 4 characters.")
+                    else:
+                        set_user_password(reset_email, new_password)
+                        st.success(f"Password reset for {reset_email}.")
+
+            st.markdown("#### Delete a user")
+            st.caption(
+                "Removes the account and all their data (resume, tailored resumes, "
+                "search history) - this can't be undone."
+            )
+            with st.form("admin_delete_user_form"):
+                delete_email = st.selectbox("User", user_emails, key="delete_user_select")
+                confirm_email = st.text_input(
+                    "Type the user's email to confirm deletion", key="delete_confirm"
+                )
+                if st.form_submit_button("Delete user"):
+                    if delete_email == UNLIMITED_USER:
+                        st.error("Can't delete the admin account.")
+                    elif confirm_email != delete_email:
+                        st.error("Confirmation email doesn't match - user not deleted.")
+                    else:
+                        delete_user(delete_email)
+                        delete_user_data(delete_email)
+                        st.success(f"Deleted {delete_email} and all their data.")
+                        st.rerun()
+
+        with tab_sdlc:
+            st.caption(
+                "Recent runs across the SDLC workflows - PR review, both "
+                "production-deploy variants, and the DevOps auto-fix - merged "
+                "into one timeline (today's two separate pipelines, meant to "
+                "converge into one over time). Read-only: nothing here can "
+                "trigger, cancel, or re-run a workflow."
+            )
+            if st.button("Refresh", key="sdlc_refresh"):
+                get_pipeline_status.clear()
+                st.rerun()
+
+            try:
+                events, status_error = get_pipeline_status()
+            except Exception:
+                events, status_error = [], "error"
+
+            if status_error == "no_token":
+                st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this tab.")
+            elif status_error in ("unreachable", "error"):
+                st.warning("Couldn't reach the GitHub Actions API just now - try Refresh in a moment.")
+            elif not events:
+                st.info("No workflow runs found yet.")
+            else:
+                for event in events:
+                    icon = (
+                        "🔄"
+                        if event["status"] != "completed"
+                        else STATUS_ICONS.get(event["conclusion"], "❓")
+                    )
+                    st.markdown(
+                        f"{icon} **{event['stage']}** — {event['title']}  \n"
+                        f"<span style='color:gray;font-size:0.85em'>"
+                        f"{event['started_at']} · "
+                        f"<a href='{event['run_url']}'>view run</a></span>",
+                        unsafe_allow_html=True,
+                    )
     st.stop()
 
 st.markdown(
