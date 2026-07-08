@@ -8,7 +8,7 @@ front end, via tools/ux_inspector.py).
 Neither tool fetches or handles AWS/SSH credentials itself - both
 expect a short-lived SSH private key to already exist on disk at
 key_path, fetched by whatever is driving the crew (see
-.github/workflows/ai-prod-flow.yml). This keeps credential handling
+.github/workflows/sdlc-pipeline.yml). This keeps credential handling
 entirely in the calling workflow, not in agent-callable code.
 """
 
@@ -17,8 +17,54 @@ import subprocess
 import time
 
 from crewai.tools import BaseTool
+from playwright.sync_api import sync_playwright
 
 SSH_OPTS = ["-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10"]
+
+# Real text Streamlit renders into the page itself when a script
+# raises an uncaught exception (e.g. a missing dependency) - the
+# 2026-07-08 outage where a new requirements.txt entry was never
+# installed on the server shipped a ModuleNotFoundError on every
+# request, but every HTTP-status check here still saw a plain 200:
+# Streamlit's websocket-delivered app content, including an in-page
+# error render, arrives inside a normal 200 response - the HTTP layer
+# has no idea the script itself crashed. Checking the actually-rendered
+# page text (via a real headless browser, not curl) is the only way to
+# catch this class of failure.
+PAGE_ERROR_MARKERS = [
+    "ModuleNotFoundError",
+    "ImportError",
+    "Traceback (most recent call last)",
+    "This app has encountered an error",
+]
+
+
+def _check_page_renders_cleanly(url: str, timeout_ms: int = 20000) -> dict:
+    """Loads url in headless Chromium and waits for the real,
+    websocket-rendered content (not just the initial HTTP response) -
+    returns whether it actually shows the app or an in-page exception.
+    No login/test account needed: a script-level crash (like a missing
+    import) happens before any auth logic runs, so it breaks even the
+    unauthenticated landing page."""
+    result = {"page_renders_cleanly": None, "page_error_snippet": None}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                body_text = page.inner_text("body")
+                marker = next((m for m in PAGE_ERROR_MARKERS if m in body_text), None)
+                result["page_renders_cleanly"] = marker is None
+                if marker:
+                    idx = body_text.find(marker)
+                    result["page_error_snippet"] = body_text[max(0, idx - 50) : idx + 250]
+            finally:
+                browser.close()
+    except Exception as e:
+        result["page_renders_cleanly"] = False
+        result["page_error_snippet"] = f"{type(e).__name__}: {e}"
+    return result
 
 
 def _ssh_run(key_path: str, remote_user: str, instance_ip: str, command: str, timeout: int = 30) -> tuple[int, str, str]:
@@ -49,12 +95,21 @@ class ProdHealthCheckTool(BaseTool):
     description: str = (
         "Checks the real, live production instance: whether a real user "
         "session currently looks active (open connections on the app "
-        "port), the HTTP status of the app on the server itself, and "
-        "the HTTP status of the public domain. Returns a JSON string "
-        "with all three, plus an 'error' key if any step failed. "
-        "Requires a short-lived SSH private key already present at "
-        "key_path (fetched by the workflow before the crew ran) - this "
-        "tool never fetches or handles credentials itself."
+        "port), the HTTP status of the app on the server itself, the "
+        "HTTP status of the public domain, and - critically - whether "
+        "the public domain's page actually RENDERS THE REAL APP rather "
+        "than an in-page exception ('page_renders_cleanly' / "
+        "'page_error_snippet'). A 200 status code on its own does NOT "
+        "prove the app works: Streamlit delivers its real content over "
+        "a websocket after the initial HTTP response, so a script-level "
+        "crash (e.g. a missing dependency) still returns a plain 200 "
+        "while showing every visitor a traceback - treat "
+        "page_renders_cleanly == false as a failure regardless of what "
+        "the HTTP status codes say. Returns a JSON string with all of "
+        "the above, plus an 'error' key if any step failed. Requires a "
+        "short-lived SSH private key already present at key_path "
+        "(fetched by the workflow before the crew ran) - this tool "
+        "never fetches or handles credentials itself."
     )
 
     def _run(
@@ -79,6 +134,7 @@ class ProdHealthCheckTool(BaseTool):
             )
             result["local_http_code"] = out
             result["domain_http_code"] = _curl_status(service_url)
+            result.update(_check_page_renders_cleanly(service_url))
         except Exception as e:
             result["error"] = f"{type(e).__name__}: {e}"
 

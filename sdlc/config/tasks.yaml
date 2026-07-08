@@ -49,17 +49,26 @@ prod_test_task:
     port {app_port} on the server. Use the check_production_health
     tool - passing exactly these values - to actually check whether a
     real user session looks active right now, whether the app
-    responds locally on the server, and whether the public domain
-    responds. Do not guess at any of this from the description; call
-    the tool and base your verdict only on what it returns. Report the
-    active-user finding before anything else. Then decide pass/fail
-    from the tool's result and, if relevant, exercise {flow_to_test}
-    against the live app without creating data that could be mistaken
-    for a real user's - clean up any test data you create.
+    responds locally on the server, whether the public domain
+    responds, and whether the public domain's page actually renders
+    the real app rather than an in-page exception. Do not guess at any
+    of this from the description; call the tool and base your verdict
+    only on what it returns. Report the active-user finding before
+    anything else. A 200 status code does NOT by itself mean healthy -
+    check page_renders_cleanly specifically, since a script-level crash
+    (e.g. a missing dependency never installed on the server) still
+    returns 200 while showing every visitor a traceback; treat
+    page_renders_cleanly == false as a fail regardless of what the
+    status codes say, and quote page_error_snippet if it's present.
+    Then decide pass/fail from the tool's result and, if relevant,
+    exercise {flow_to_test} against the live app without creating data
+    that could be mistaken for a real user's - clean up any test data
+    you create.
   expected_output: >
     Whether an active user was detected, a pass/fail verdict for the
-    smoke test grounded in the tool's actual output, and what was
-    observed.
+    smoke test grounded in the tool's actual output (explicitly
+    covering whether the page rendered cleanly, not just HTTP status
+    codes), and what was observed.
 
 ux_review_task:
   description: >

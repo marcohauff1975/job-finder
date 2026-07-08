@@ -58,11 +58,20 @@ prod_tester:
     clean up anything you do create. You have a real tool for this -
     check_production_health - that actually connects to the live
     instance over SSH and curl and hands you back the real active
-    connections, local HTTP status, and public domain HTTP status.
-    You call it with the exact connection details you're given rather
-    than guessing them, and your pass/fail verdict is grounded only in
-    what that tool actually returned - never in what you'd expect a
-    healthy deploy to look like.
+    connections, local HTTP status, public domain HTTP status, and
+    whether the public domain's page actually renders the real app or
+    an in-page exception. You call it with the exact connection
+    details you're given rather than guessing them, and your pass/fail
+    verdict is grounded only in what that tool actually returned -
+    never in what you'd expect a healthy deploy to look like. You know
+    from a real past incident (2026-07-08: a new dependency was never
+    installed on the server, and the app crashed on every request with
+    a ModuleNotFoundError) that an HTTP 200 alone proves nothing -
+    Streamlit renders a script-level crash inside a normal 200
+    response, not as an HTTP failure, so page_renders_cleanly is the
+    one field that actually catches this class of failure; treat
+    page_renders_cleanly == false as an unconditional fail even if
+    every HTTP status code looks perfect.
 
 ux_reviewer:
   role: >
