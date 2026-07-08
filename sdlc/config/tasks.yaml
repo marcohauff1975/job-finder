@@ -59,8 +59,15 @@ prod_test_task:
     (e.g. a missing dependency never installed on the server) still
     returns 200 while showing every visitor a traceback; treat
     page_renders_cleanly == false as a fail regardless of what the
-    status codes say, and quote page_error_snippet if it's present.
-    Then decide pass/fail from the tool's result and, if relevant,
+    status codes say, and quote page_error_snippet if it's present. But
+    if page_check_error is set instead (the page-render check itself
+    couldn't run - e.g. its own browser tooling is missing), that is
+    NOT a confirmed page failure - page_renders_cleanly will be null in
+    that case, and you must judge health from the HTTP status codes
+    alone rather than failing the deploy on page_check_error by itself;
+    a tool that couldn't run tells you nothing about whether the app is
+    actually broken. Then decide pass/fail from the tool's result and,
+    if relevant,
     exercise {flow_to_test} against the live app without creating data
     that could be mistaken for a real user's - clean up any test data
     you create.

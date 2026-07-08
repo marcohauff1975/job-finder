@@ -81,6 +81,15 @@ jobs:
       - name: Install dependencies (for the CrewAI agents)
         run: pip install -r requirements.txt
 
+      # prod_tester's check_production_health drives a real headless
+      # browser (see sdlc/tools/prod_ops.py) - pip install alone only
+      # gets the Python package, not the actual browser binary. Without
+      # this, the browser launch itself fails on every run, which reads
+      # identically to "the page shows an error" and triggers a rollback
+      # regardless of whether production is actually fine.
+      - name: Install Playwright's browser (for prod_tester's page check)
+        run: playwright install --with-deps chromium
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
