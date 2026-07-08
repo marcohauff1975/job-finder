@@ -63,7 +63,8 @@ def main() -> int:
         print("::error::code_reviewer crew produced no result")
         return 1
 
-    env = {**os.environ, "GH_TOKEN": bot_token}
+    env = {k: v for k, v in os.environ.items() if k not in ("REVIEWER_BOT_TOKEN", "ANTHROPIC_API_KEY")}
+    env["GH_TOKEN"] = bot_token
 
     if result.passed:
         body = "**Automated review by code_reviewer:** no issues found."
