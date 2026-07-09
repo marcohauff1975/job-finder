@@ -270,21 +270,3 @@ def setup_layout():
         return main_col.container(border=True)
     st.session_state["ai_action_placeholder"] = None
     return st.container()
-
-
-def render_live_activity_panel() -> None:
-    """Same live step feed as setup_layout()'s AI viewer mode (every
-    agent/tool/LLM step CrewAI takes during a crew.kickoff() in this
-    script run, updating as it happens), but always on and rendered
-    inline rather than gated by the sidebar toggle - for pages like the
-    admin Requirements Challenge page, where watching the agents work
-    is the whole point of the page, not an opt-in extra. Call once
-    right before kicking off a crew; steps accumulate in
-    st.session_state["ai_steps"] across calls unless the caller clears
-    it first (e.g. before starting a new run)."""
-    st.session_state["ai_viewer_mode"] = True
-    _capture_script_ctx()
-    with st.container(border=True):
-        st.caption("🔎 Agent activity")
-        st.session_state["ai_action_placeholder"] = st.empty()
-        _render_steps()
