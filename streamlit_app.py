@@ -56,7 +56,7 @@ from job_search import (
     save_tailored_resume,
     tailor_resume_for_job,
 )
-from ai_viewer import render_live_activity_panel, render_sidebar_toggle, setup_layout
+from ai_viewer import render_sidebar_toggle, setup_layout
 from sdlc.SDLC import (
     ArchitectureDirectionResult,
     FeatureRequirementsResult,
@@ -366,13 +366,14 @@ def _render_requirements_challenge_page() -> None:
             session_id = st.session_state["rc_session_id"]
             build_result = None
             error = None
-            st.session_state["ai_steps"] = []
+            st.session_state["ai_busy"] = True
             try:
                 with st.spinner("👷 Software Engineer is building this feature..."):
-                    render_live_activity_panel()
                     build_result = _run_with_retry(build_feature, pm_result, architect_result)
             except Exception as e:
                 error = f"The build failed: {e}"
+            finally:
+                st.session_state["ai_busy"] = False
 
             if error is not None or build_result is None:
                 messages.append(
@@ -407,15 +408,16 @@ def _render_requirements_challenge_page() -> None:
 
         result = None
         error = None
-        st.session_state["ai_steps"] = []
+        st.session_state["ai_busy"] = True
         try:
             with st.spinner("✨ Magic is happening, please wait..."):
-                render_live_activity_panel()
                 result = _run_with_retry(
                     challenge_requirement, _format_conversation_for_agents(messages)
                 )
         except Exception as e:
             error = f"The requirements challenge failed: {e}"
+        finally:
+            st.session_state["ai_busy"] = False
 
         if error is not None or result is None:
             messages.append(
@@ -656,7 +658,8 @@ if st.query_params.get("admin") is not None:
                 "Read-only: nothing here can trigger, cancel, or re-run "
                 "anything."
             )
-            st_autorefresh(interval=10_000, key="sdlc_flow_autorefresh")
+            if not st.session_state.get("ai_busy"):
+                st_autorefresh(interval=10_000, key="sdlc_flow_autorefresh")
 
             try:
                 pr_info, stages, flow_error = get_latest_pr_flow()
