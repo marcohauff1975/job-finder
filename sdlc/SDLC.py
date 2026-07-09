@@ -844,7 +844,21 @@ def build_feature(
         "pm_requirements": _format_requirements_for_engineer(pm_result),
         "architecture_direction": _format_architecture_for_engineer(architect_result),
     }
-    result = feature_build_crew.kickoff(inputs=inputs)
+    try:
+        result = feature_build_crew.kickoff(inputs=inputs)
+    except Exception:
+        # A final answer that mixes prose with a JSON block (e.g. the
+        # engineer explaining a clarifying question instead of cleanly
+        # returning FeatureBuildResult JSON) can make CrewAI's own
+        # partial-JSON handling raise a bare pydantic ValidationError
+        # instead of falling back gracefully (crewai/utilities/
+        # converter.py's handle_partial_json re-raises on a
+        # validation failure rather than trying the LLM-based
+        # converter it falls back to for other failure modes) - that
+        # exception must not escape this function uncaught, or the
+        # caller never gets to show the user anything at all instead
+        # of a clean "something went wrong" message.
+        return None
     return result.pydantic if result.pydantic else None
 
 
