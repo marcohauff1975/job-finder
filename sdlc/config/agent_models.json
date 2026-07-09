@@ -1,5 +1,5 @@
 {
-  "code_reviewer": "anthropic/claude-haiku-4-5-20251001",
+  "code_reviewer": "anthropic/claude-sonnet-5",
   "local_tester": "anthropic/claude-haiku-4-5-20251001",
   "ux_reviewer": "anthropic/claude-haiku-4-5-20251001",
   "prod_tester": "anthropic/claude-haiku-4-5-20251001",
