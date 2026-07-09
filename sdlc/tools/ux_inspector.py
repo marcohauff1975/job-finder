@@ -40,6 +40,12 @@ DB_PATH = REPO_ROOT / "data" / "auth.db"
 USERS_DIR = REPO_ROOT / "users"
 SCREENSHOTS_DIR = Path(__file__).parent.parent / "ux_reports" / "screenshots"
 
+# Not a credential to anything real: this tool registers this exact
+# account itself at the start of a run (see _login_or_register below)
+# and deletes it again at the end (_delete_test_account) - the value
+# only ever needs to match itself within a single run, never anything
+# pre-existing, so there is nothing here worth protecting with an env
+# var.
 TEST_EMAIL = "ux-reviewer-agent@example.com"
 TEST_PASSWORD = "UxReviewerAgent123"
 TEST_FIRST_NAME = "UX"
