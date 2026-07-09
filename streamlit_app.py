@@ -73,6 +73,7 @@ from sdlc.model_registry import (
 )
 from sdlc.requirements_sessions import list_sessions, load_session, new_session_id, save_session
 from sdlc_agent_steps import get_agent_activity
+from sdlc_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
@@ -341,6 +342,30 @@ def _render_requirements_challenge_page() -> None:
         "</div>",
         unsafe_allow_html=True,
     )
+
+    current_deploy_mode = get_auto_deploy_mode()
+    if current_deploy_mode is None:
+        st.caption(
+            "⚠️ Can't read the current deploy workflow mode - GITHUB_VARIABLES_TOKEN is "
+            "either missing or doesn't have permission to read repo Actions variables."
+        )
+    else:
+        toggled_deploy_mode = st.toggle(
+            "🚀 Automated deploy on merge",
+            value=current_deploy_mode,
+            key="rc_auto_deploy_toggle",
+            help="Same switch as the 'Toggle Demo Mode' desktop icon. Off (default): "
+            "deploying to production after a merge still needs a manual 'Run workflow' "
+            "click. On: merging a PR into main auto-deploys straight to production.",
+        )
+        if toggled_deploy_mode != current_deploy_mode:
+            if set_auto_deploy_mode(toggled_deploy_mode):
+                st.rerun()
+            else:
+                st.error(
+                    "Couldn't update the deploy mode - check GITHUB_VARIABLES_TOKEN's "
+                    "permissions."
+                )
 
     messages = st.session_state.get("rc_messages", [])
     if not messages:
