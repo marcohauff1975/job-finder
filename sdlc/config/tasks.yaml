@@ -7,7 +7,11 @@ code_review_task:
     or corrupt existing user data (auth records, uploaded resumes),
     and deviations from this project's established patterns. Only
     report issues you can point to a specific line or hunk for - do
-    not speculate about code outside the diff.
+    not speculate about code outside the diff. Before flagging a
+    pinned dependency version in requirements.txt, or a Claude
+    LLM(model=...) id, as implausible or nonexistent, verify it first
+    with check_pypi_package_version / check_anthropic_model_id - do
+    not flag it on how unfamiliar it looks alone.
   expected_output: >
     A pass/fail verdict, followed by a list of concrete findings (if
     any), each with the file/line and a one-sentence explanation of

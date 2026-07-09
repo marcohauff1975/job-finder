@@ -14,11 +14,11 @@ This file just loads those definitions, wires them together, and
 exposes one function per stage.
 
 Not yet wired up (deliberately left for a later pass):
-- No tools are attached to code_reviewer or local_tester yet, so
-  those two can only reason over whatever text you pass them (a diff,
-  a description of what to test) - they can't run git or pytest
-  themselves. ux_reviewer (tools/ux_inspector.py), prod_tester, and
-  rollback_agent (both tools/prod_ops.py) already have real tools.
+- No tools are attached to local_tester yet, so it can only reason
+  over whatever text you pass it (a description of what to test) - it
+  can't run git or pytest itself. ux_reviewer (tools/ux_inspector.py),
+  prod_tester, rollback_agent (both tools/prod_ops.py), and
+  code_reviewer (tools/dependency_check.py) already have real tools.
 - No orchestration between stages (e.g. only calling rollback() if
   test_production() fails) - that control flow will live wherever
   this is eventually driven from (a script, or another agent).
@@ -47,6 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from sdlc.tools.dependency_check import AnthropicModelCheckTool, PackageVersionCheckTool
 from sdlc.tools.devops_ops import (
     CommitAndPushFixTool,
     FetchFailedRunLogsTool,
@@ -224,6 +225,7 @@ def _llm(agent_key: str) -> LLM:
 code_reviewer = Agent(
     config=agents_config["code_reviewer"],
     llm=_llm("code_reviewer"),
+    tools=[PackageVersionCheckTool(), AnthropicModelCheckTool()],
     verbose=True,
 )
 
