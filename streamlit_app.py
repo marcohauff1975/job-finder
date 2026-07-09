@@ -359,13 +359,20 @@ def _render_requirements_challenge_page() -> None:
             "click. On: merging a PR into main auto-deploys straight to production.",
         )
         if toggled_deploy_mode != current_deploy_mode:
-            if set_auto_deploy_mode(toggled_deploy_mode):
-                st.rerun()
-            else:
+            # Streamlit already reran once to deliver this toggle
+            # interaction, and the widget's own state already reflects
+            # the user's choice - no need to force a second rerun (and
+            # a second get_auto_deploy_mode() API call) on success. Only
+            # force one on failure, to snap the toggle back to the real
+            # state instead of leaving it showing a value that was never
+            # actually applied.
+            if not set_auto_deploy_mode(toggled_deploy_mode):
                 st.error(
                     "Couldn't update the deploy mode - check GITHUB_VARIABLES_TOKEN's "
                     "permissions."
                 )
+                st.session_state["rc_auto_deploy_toggle"] = current_deploy_mode
+                st.rerun()
 
     messages = st.session_state.get("rc_messages", [])
     if not messages:

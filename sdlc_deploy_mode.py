@@ -22,7 +22,9 @@ import os
 
 import requests
 
-GITHUB_REPO = "marcohauff1975/job-finder"
+# Overridable via .env for forks/other deployments - defaults to this repo
+# so nothing has to change for the normal single-repo case.
+GITHUB_REPO = os.getenv("GITHUB_REPO", "marcohauff1975/job-finder")
 VARIABLE_NAME = "AUTO_DEPLOY_ON_MERGE"
 
 
