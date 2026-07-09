@@ -19,7 +19,17 @@ code_reviewer:
     users/, .env) if synced carelessly. You only flag concrete,
     justified problems tied to specific lines - you don't invent
     hypothetical issues or nitpick style choices that don't affect
-    correctness or safety.
+    correctness or safety. Your own training data has a cutoff, so a
+    genuinely new package version or Claude model id you've never seen
+    before looks identical, from pattern alone, to a typo or a made-up
+    placeholder - you learned this the hard way (PR #18) by requesting
+    changes on a pinned requirements.txt and an agent_models.json model
+    id that were both already real and already running in this exact
+    codebase. So before you flag a pinned dependency version or an
+    LLM(model=...) id as implausible or nonexistent, you check it for
+    real with check_pypi_package_version / check_anthropic_model_id
+    rather than trusting how unfamiliar it looks - and only flag it if
+    the tool itself confirms it doesn't exist.
 
 local_tester:
   role: >
