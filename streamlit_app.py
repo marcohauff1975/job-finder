@@ -74,7 +74,6 @@ from sdlc.model_registry import (
 from sdlc.requirements_sessions import list_sessions, load_session, new_session_id, save_session
 from sdlc_agent_steps import get_agent_activity
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
-from streamlit_autorefresh import st_autorefresh
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
 
@@ -366,14 +365,11 @@ def _render_requirements_challenge_page() -> None:
             session_id = st.session_state["rc_session_id"]
             build_result = None
             error = None
-            st.session_state["ai_busy"] = True
             try:
                 with st.spinner("👷 Software Engineer is building this feature..."):
                     build_result = _run_with_retry(build_feature, pm_result, architect_result)
             except Exception as e:
                 error = f"The build failed: {e}"
-            finally:
-                st.session_state["ai_busy"] = False
 
             if error is not None or build_result is None:
                 messages.append(
@@ -408,7 +404,6 @@ def _render_requirements_challenge_page() -> None:
 
         result = None
         error = None
-        st.session_state["ai_busy"] = True
         try:
             with st.spinner("✨ Magic is happening, please wait..."):
                 result = _run_with_retry(
@@ -416,8 +411,6 @@ def _render_requirements_challenge_page() -> None:
                 )
         except Exception as e:
             error = f"The requirements challenge failed: {e}"
-        finally:
-            st.session_state["ai_busy"] = False
 
         if error is not None or result is None:
             messages.append(
@@ -658,8 +651,16 @@ if st.query_params.get("admin") is not None:
                 "Read-only: nothing here can trigger, cancel, or re-run "
                 "anything."
             )
-            if not st.session_state.get("ai_busy"):
-                st_autorefresh(interval=10_000, key="sdlc_flow_autorefresh")
+            # Not auto-polling on a timer: every st.tabs() panel's code runs
+            # on every script rerun regardless of which tab is visually
+            # active (Streamlit doesn't skip hidden tabs), so a timer armed
+            # here would keep ticking client-side even while a different
+            # tab (e.g. Request a New Feature) is mid-crew-call, and firing
+            # it there forces Streamlit to cancel that run before it can
+            # save its result - exactly what happened in production. A
+            # manual button avoids that risk entirely.
+            if st.button("🔄 Refresh", key="sdlc_flow_refresh"):
+                st.rerun()
 
             try:
                 pr_info, stages, flow_error = get_latest_pr_flow()
