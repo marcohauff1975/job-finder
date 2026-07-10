@@ -538,9 +538,12 @@ feature_build_task:
     {architecture_direction}
     Both were already confirmed ready for development before you were
     handed this task - implement it in this repository (crewai-starter).
-    Read the actual existing code relevant to the change with the
-    file-reading tool before writing anything - never assume how
-    something currently works. Match this codebase's established
+    The main Streamlit app is streamlit_app.py at the repository root -
+    start there rather than guessing at other filenames or paths (there
+    is no app.py, main.py, Home.py, or pages/ directory). Read the
+    actual existing code relevant to the change with the file-reading
+    tool before writing anything - never assume how something
+    currently works. Match this codebase's established
     conventions (Streamlit + CrewAI, SQLite-backed auth, per-user
     users/<email>/ file storage) and build only what the requirements
     and direction actually call for - no unrelated refactors, no
