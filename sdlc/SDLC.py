@@ -29,6 +29,7 @@ constants below):
 """
 
 import os
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -176,6 +177,17 @@ class ArchitectureDirectionResult(BaseModel):
     technical_notes: str
     clarifications_needed: list[str] = []
     ready_for_development: bool
+
+
+# Matches build_feature()'s validation of FeatureBuildResult.pr_url -
+# a real PR URL from create_feature_branch_and_open_pr's own REST API
+# response, not just any non-empty string. Needed after observing
+# (2026-07-10) that when the real tool call failed, the engineer
+# fabricated a plausible-looking fake URL for a different org/repo
+# entirely (github.com/mhauff/crewai-starter/pull/[PR_NUMBER], with an
+# unfilled placeholder) rather than reporting the failure - an empty-
+# string check alone doesn't catch that.
+_PR_URL_PATTERN = re.compile(r"^https://github\.com/marcohauff1975/job-finder/pull/\d+$")
 
 
 class FeatureBuildResult(BaseModel):
@@ -1009,14 +1021,16 @@ def build_feature(
         # reason.
         return None
     build_result = result.pydantic
-    if build_result is None or not build_result.pr_url:
-        # A populated FeatureBuildResult with an empty pr_url means the
-        # engineer wrote up a plan (or even a summary claiming success)
-        # without ever actually calling create_feature_branch_and_open_pr -
-        # nothing was pushed anywhere. Treating that the same as a
-        # missing result (None) is what makes the caller show "something
-        # went wrong" instead of a false "build complete" message with no
-        # PR behind it.
+    if build_result is None or not _PR_URL_PATTERN.match(build_result.pr_url):
+        # A FeatureBuildResult with an empty, malformed, or fabricated
+        # pr_url (e.g. the wrong org/repo, or a literal unfilled
+        # "[PR_NUMBER]" placeholder - observed live on production) means
+        # the engineer never got a real PR back from
+        # create_feature_branch_and_open_pr, whether it wrote a plan
+        # without calling the tool or the tool itself failed. Treating
+        # that the same as a missing result (None) is what makes the
+        # caller show "something went wrong" instead of a false "build
+        # complete" message pointing at a PR that doesn't exist.
         return None
     return build_result
 

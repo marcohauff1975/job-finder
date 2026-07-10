@@ -21,16 +21,20 @@ that): the production server's own git checkout uses a read-only
 deploy key by design (~/.ssh/id_ed25519_jobfinder, can pull to deploy,
 was never meant to push) - discovered when this tool's git push kept
 failing there with "The key you are authenticating with has been
-marked as read only." Pushing the branch and opening the PR both go
-through this token explicitly (GIT_ASKPASS for the push, GH_TOKEN in
-the environment for `gh pr create`) rather than through any ambient
-remote or gh auth, so this works the same way regardless of what
-environment it runs in - same reasoning as sdlc_deploy_mode.py's
+marked as read only." Pushing the branch goes through this token via
+GIT_ASKPASS, and opening the PR goes through GitHub's REST API
+directly with this same token, rather than shelling out to the `gh`
+CLI - discovered (2026-07-10) that `gh` isn't even installed on the
+production server, which made every otherwise-successful push end in
+a confusing "[Errno 2] No such file or directory: 'gh'" failure. Using
+the REST API directly means this doesn't depend on `gh` being present
+at all, the same reasoning as sdlc_deploy_mode.py's
 GITHUB_VARIABLES_TOKEN.
 """
 
 import os
 
+import requests
 from crewai.tools import BaseTool
 
 from sdlc.tools.build_workspace import _GITHUB_REPO, git_askpass_env, run_in_workspace, workspace_dir
@@ -116,23 +120,21 @@ class CreateFeatureBranchAndOpenPRTool(BaseTool):
         if code != 0:
             return f"git push failed: {err or out}"
 
-        # gh pr create needs its own auth - GH_TOKEN overrides whatever
-        # (if anything) gh is already logged in as in this environment.
-        code, out, err = run_in_workspace(
-            [
-                "gh", "pr", "create",
-                "--repo", _GITHUB_REPO,
-                "--base", "main",
-                "--head", branch_name,
-                "--title", pr_title,
-                "--body", pr_body,
-            ],
-            timeout=60,
-            env={**os.environ, "GH_TOKEN": push_token},
-        )
-        if code != 0:
+        try:
+            response = requests.post(
+                f"https://api.github.com/repos/{_GITHUB_REPO}/pulls",
+                headers={
+                    "Authorization": f"Bearer {push_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                json={"title": pr_title, "head": branch_name, "base": "main", "body": pr_body},
+                timeout=30,
+            )
+            response.raise_for_status()
+            pr_url = response.json()["html_url"]
+        except (requests.RequestException, KeyError, ValueError) as e:
             return (
                 f"Pushed branch '{branch_name}' (commit: {full_message}) but "
-                f"opening the PR failed: {err or out}"
+                f"opening the PR failed: {e}"
             )
-        return f"Pushed branch '{branch_name}' and opened PR: {out}"
+        return f"Pushed branch '{branch_name}' and opened PR: {pr_url}"
