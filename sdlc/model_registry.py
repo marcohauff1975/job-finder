@@ -46,6 +46,8 @@ AGENT_DISPLAY_NAMES = {
     "prod_tester": "Prod Tester",
     "rollback_agent": "Rollback Agent",
     "devops_agent": "DevOps Agent",
+    "pr_fix_agent": "PR Fix Agent",
+    "pr_arbiter": "PR Arbiter (secondary approver)",
     "cto": "CTO (readiness panel chair)",
     "aws_lead_engineer": "AWS Lead Engineer",
     "python_lead_engineer": "Python Lead Engineer",
@@ -96,6 +98,21 @@ RECOMMENDATIONS = {
         "Already deliberately upgraded (pushes an unreviewed fix straight "
         "to main and re-triggers prod). Keep here, or go Opus if it starts "
         "mis-diagnosing root causes.",
+    ),
+    "pr_fix_agent": (
+        "anthropic/claude-sonnet-5",
+        "Writes real fixes to code review findings, but every fix gets "
+        "re-reviewed by code_reviewer before anything can merge - a wrong "
+        "fix is caught downstream, not shipped directly, so this doesn't "
+        "need the strongest tier.",
+    ),
+    "pr_arbiter": (
+        "anthropic/claude-opus-4-8",
+        "The actual final decision on whether an unresolved PR is safe to "
+        "merge into production, with nobody else reviewing it afterward - "
+        "Marco has explicitly said he can't make this call himself, so a "
+        "wrong verdict here ships straight to real users. Same reasoning "
+        "as security_engineer's tier.",
     ),
     "cto": (
         "anthropic/claude-sonnet-5",

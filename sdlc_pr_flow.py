@@ -26,9 +26,19 @@ GITHUB_REPO = "marcohauff1975/job-finder"
 PIPELINE_WORKFLOW_FILE = "sdlc-pipeline.yml"
 DEVOPS_AGENT_WORKFLOW_FILE = "devops-agent.yml"
 
+# Both identify a persona's activity from real GitHub data, since
+# pr_fix_agent and pr_arbiter don't have their own GitHub identity -
+# pr_fix_agent only ever leaves a commit (never a review), and
+# pr_arbiter posts under the same MarcoAIagent bot account
+# code_reviewer uses (see sdlc/code_review_runner.py, which writes
+# both of these prefixes verbatim).
+PR_FIX_AGENT_COMMIT_PREFIX = "[pr-fix-agent]"
+PR_ARBITER_BODY_PREFIX = "**Secondary review by pr_arbiter:**"
+
 STAGE_COLORS = {
     "ok": "#22d3ee",  # cyan - succeeded
     "changes_requested": "#f59e0b",  # amber - code review needs rework (loops back to Merge Request)
+    "blocked": "#f59e0b",  # amber - pr_arbiter decided not to merge (Marco notified, no auto-retry loop)
     "failed": "#f59e0b",  # amber - deploy/test failed (branches down to DevOps Agent, no loop back)
     "running": "#8b5cf6",  # violet - in progress right now
 }
@@ -54,11 +64,24 @@ def _truncate(text: str, limit: int = 130) -> str:
     return text if len(text) <= limit else text[: limit].rstrip() + "…"
 
 
+_KNOWN_BODY_PREFIXES = (
+    "**Automated review by code_reviewer:**",
+    PR_ARBITER_BODY_PREFIX,
+)
+
+
 def _summarize_review(body: str) -> str:
     """Review bodies are a markdown bullet list of findings - the first
     bullet is the most representative one-line summary. Falls back to
     the first line of plain text if there are no bullets (e.g. a plain
-    approval body)."""
+    approval body). Strips this script's own known bold-text lead-ins
+    first (e.g. "**Secondary review by pr_arbiter:**") - the box already
+    shows who's speaking via its agent label, and raw "**" markers don't
+    render as bold in an SVG <text> element, just literal asterisks."""
+    for prefix in _KNOWN_BODY_PREFIXES:
+        if body.startswith(prefix):
+            body = body[len(prefix):].strip()
+            break
     for line in body.splitlines():
         line = line.strip()
         if line.startswith("- "):
@@ -220,10 +243,21 @@ def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
         token,
         params={"per_page": 20, "event": "pull_request"},
     )
-    if not (ok and ok2 and ok3):
+    # pr_fix_agent never posts a review of its own (see sdlc/
+    # code_review_runner.py) - a commit is the only real trace it left
+    # anything, so the actual PR commit list is what tells this diagram
+    # a fix round happened at all.
+    commits, ok4 = _gh_get(f"/pulls/{number}/commits", token)
+    if not (ok and ok2 and ok3 and ok4):
         return None, [], "unreachable"
 
     reviews = reviews or []
+    commits = commits or []
+    fix_agent_commits = {
+        c["sha"]: (c.get("commit", {}).get("message") or "")
+        for c in commits
+        if (c.get("commit", {}).get("message") or "").startswith(PR_FIX_AGENT_COMMIT_PREFIX)
+    }
     workflow_runs = [r for r in (runs or {}).get("workflow_runs", []) if r.get("head_branch") == pr["head"]["ref"]]
     workflow_runs.sort(key=lambda r: r.get("created_at", ""))
     reviews_sorted = sorted(reviews, key=lambda r: r.get("submitted_at", "") or "")
@@ -248,14 +282,52 @@ def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
     ]
 
     for i, review in enumerate(reviews_sorted):
-        state = "changes_requested" if review.get("state") == "CHANGES_REQUESTED" else "ok"
+        body = review.get("body", "") or ""
+        bot_login = review.get("user", {}).get("login", "bot")
+
+        # A review posted against a [pr-fix-agent] commit means that
+        # commit is what got this round to a postable state - show it
+        # as its own box immediately before the review it enabled, in
+        # real chronological order.
+        fix_message = fix_agent_commits.get(review.get("commit_id"))
+        if fix_message is not None:
+            stages.append(
+                {
+                    "kind": "pr_fix_agent",
+                    "label": "PR Fix Agent",
+                    "agent": "pr_fix_agent",
+                    "state": "ok",
+                    "summary": _truncate(
+                        fix_message.removeprefix(PR_FIX_AGENT_COMMIT_PREFIX).strip()
+                        or "Applied fixes for code_reviewer's findings."
+                    ),
+                    "url": review.get("html_url", pr_info["url"]),
+                }
+            )
+
+        if body.startswith(PR_ARBITER_BODY_PREFIX):
+            # pr_arbiter posts under the same bot identity code_reviewer
+            # does (see sdlc/code_review_runner.py's docstring for why -
+            # GitHub reviews have to come from one consistent account),
+            # so only the body text distinguishes the two. A block here
+            # is "blocked", never "changes_requested" - the PR is left
+            # open with Marco notified, nothing will auto-retry it the
+            # way a real rework round would.
+            label = f"PR Arbiter (round {i + 1})"
+            agent = f"pr_arbiter ({bot_login})"
+            state = "blocked" if review.get("state") == "CHANGES_REQUESTED" else "ok"
+        else:
+            label = f"Code Review (round {i + 1})"
+            agent = f"code_reviewer ({bot_login})"
+            state = "changes_requested" if review.get("state") == "CHANGES_REQUESTED" else "ok"
+
         stages.append(
             {
                 "kind": "code_review",
-                "label": f"Code Review (round {i + 1})",
-                "agent": f"code_reviewer ({review.get('user', {}).get('login', 'bot')})",
+                "label": label,
+                "agent": agent,
                 "state": state,
-                "summary": _summarize_review(review.get("body", "")),
+                "summary": _summarize_review(body),
                 "url": review.get("html_url", pr_info["url"]),
             }
         )

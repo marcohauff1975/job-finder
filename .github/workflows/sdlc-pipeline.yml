@@ -36,8 +36,30 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      # ref + token here matter beyond "which commit to check out": if
+      # pr_fix_agent applies a fix, code_review_runner.py commits and
+      # pushes it directly from this checkout (see that file's own
+      # docstring for why it's one push at the end, not one per
+      # attempt). Checking out the default merge-ref would leave that
+      # push with nowhere real to land (detached HEAD, not a branch);
+      # the repo's default GITHUB_TOKEN is also read-only (see repo
+      # Settings -> Actions -> General), so it can't push at all -
+      # REVIEWER_BOT_TOKEN (same identity that already reviews/merges
+      # today) is what actually has write access. Only correct for
+      # same-repo PRs (head.repo == base.repo) - a fork PR's head.ref
+      # wouldn't exist in this repo to check out, and this project has
+      # never had external fork contributors.
+      - name: Checkout the PR's actual branch (not the merge ref)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.REVIEWER_BOT_TOKEN }}
+
+      # code_review_runner.py re-diffs against origin/main after every
+      # pr_fix_agent attempt (see _current_diff_vs_main) - the default
+      # single-branch checkout above doesn't fetch main at all.
+      - name: Fetch main (for re-diffing after each fix attempt)
+        run: git fetch origin main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,7 +74,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > /tmp/pr.diff
 
-      - name: Run code_reviewer and submit the review
+      - name: Run code_reviewer (and pr_fix_agent / pr_arbiter if needed)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           REVIEWER_BOT_TOKEN: ${{ secrets.REVIEWER_BOT_TOKEN }}

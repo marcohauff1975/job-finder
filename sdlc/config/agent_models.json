@@ -5,6 +5,8 @@
   "prod_tester": "anthropic/claude-haiku-4-5-20251001",
   "rollback_agent": "anthropic/claude-haiku-4-5-20251001",
   "devops_agent": "anthropic/claude-sonnet-5",
+  "pr_fix_agent": "anthropic/claude-sonnet-5",
+  "pr_arbiter": "anthropic/claude-opus-4-8",
   "cto": "anthropic/claude-sonnet-5",
   "aws_lead_engineer": "anthropic/claude-sonnet-5",
   "python_lead_engineer": "anthropic/claude-sonnet-5",

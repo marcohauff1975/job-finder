@@ -163,6 +163,58 @@ devops_fix_task:
     re-triggered.
   agent: devops_agent
 
+pr_fix_task:
+  description: >
+    code_reviewer requested changes on this pull request. Its exact
+    findings are:
+    {findings}
+    For each finding, use the file-reading tool to open the real file
+    at the location given and confirm the problem is actually there,
+    then use the file-writing tool (pass overwrite=true) to apply the
+    smallest fix that addresses it. If a finding doesn't reproduce when
+    you check the real current file, leave that file alone and note why
+    in your summary rather than changing something that isn't actually
+    wrong. Never touch .env, anything under data/ or users/, or any
+    file not named in a finding above. Do not attempt to commit, push,
+    or open anything - only edit the files themselves.
+  expected_output: >
+    The exact list of file paths you actually changed (empty if none),
+    and a one-paragraph summary of what you fixed and why, including
+    any finding you deliberately left alone because it didn't
+    reproduce.
+  agent: pr_fix_agent
+
+pr_arbiter_task:
+  description: >
+    code_reviewer and pr_fix_agent have already been through this pull
+    request's review/fix loop as many times as the pipeline allows, and
+    it still hasn't reached a clean approval. The current diff is:
+    {diff}
+    The findings still outstanding after the last review round are:
+    {findings}
+    Read the actual current files yourself with the file-reading tool
+    for anything you need to verify - do not simply trust
+    code_reviewer's characterization of how serious each finding is,
+    since a review that couldn't converge may also have misjudged its
+    own findings' real severity. Decide for real: is what's left safe
+    to merge into this production-deployed app as-is, or must it not
+    ship. Treat anything touching a secret/credential, authentication
+    or session handling, data loss/corruption, or a genuine correctness
+    bug that would break the app for real users as disqualifying. Treat
+    style/naming/documentation-only findings, or anything that doesn't
+    actually reproduce when you check the real file, as non-blocking.
+    Marco is not a developer and has explicitly said he cannot make
+    this call himself - your verdict is the actual final decision, not
+    a recommendation for him to review.
+  expected_output: >
+    Whether it's safe_to_merge, a clear plain-language reasoning Marco
+    could read and understand without a technical background, and a
+    list of blocking_reasons (empty if safe_to_merge is true) - each
+    specific enough that, if the PR must be abandoned instead of
+    merged, Marco would understand why without needing to judge the
+    code himself.
+  agent: pr_arbiter
+
 cto_review_task:
   description: >
     You are reviewing the WHOLE Job Finder project - both the app repo
