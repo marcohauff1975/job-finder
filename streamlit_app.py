@@ -71,7 +71,13 @@ from sdlc.model_registry import (
     load_agent_models,
     set_agent_model,
 )
-from sdlc.requirements_sessions import list_sessions, load_session, new_session_id, save_session
+from sdlc.requirements_sessions import (
+    delete_session,
+    list_sessions,
+    load_session,
+    new_session_id,
+    save_session,
+)
 from sdlc_agent_steps import get_agent_activity
 from sdlc_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
@@ -328,10 +334,17 @@ def _render_requirements_challenge_page() -> None:
         for session in sessions:
             is_active = session["id"] == st.session_state.get("rc_session_id")
             label = ("▶ " if is_active else "") + session["title"]
-            if st.button(label, key=f"rc_session_{session['id']}", use_container_width=True):
+            session_col, delete_col = st.columns([5, 1])
+            if session_col.button(label, key=f"rc_session_{session['id']}", use_container_width=True):
                 st.session_state["rc_session_id"] = session["id"]
                 loaded = load_session(session["id"])
                 st.session_state["rc_messages"] = loaded["messages"] if loaded else []
+                st.rerun()
+            if delete_col.button("🗑️", key=f"rc_delete_{session['id']}", help="Delete this session"):
+                delete_session(session["id"])
+                if is_active:
+                    st.session_state["rc_session_id"] = new_session_id()
+                    st.session_state["rc_messages"] = []
                 st.rerun()
 
     st.markdown(
