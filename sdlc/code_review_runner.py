@@ -182,7 +182,13 @@ def _commit_and_push_accumulated_fixes(changed_files: list[str]) -> bool:
         print(f"::error::git add failed: {err or out}")
         return False
 
-    code, out, err = _run(["git", "commit", "-m", "[pr-fix-agent] Address code review findings"])
+    # File list goes in the commit message (not just the code) so the
+    # "SDLC Pipeline" admin dashboard (sdlc_pr_flow.py) has something
+    # real to show in its PR Fix Agent box - it identifies this commit
+    # by the "[pr-fix-agent]" prefix, same as devops-agent's commits do
+    # for its own workflow.
+    message = f"[pr-fix-agent] Address code review findings in {', '.join(changed_files)}"
+    code, out, err = _run(["git", "commit", "-m", message])
     if code != 0:
         print(f"::error::git commit failed (maybe nothing actually changed?): {err or out}")
         return False
