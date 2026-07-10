@@ -595,7 +595,13 @@ feature_build_task:
     is no app.py, main.py, Home.py, or pages/ directory). Read the
     actual existing code relevant to the change with the file-reading
     tool before writing anything - never assume how something
-    currently works. Match this codebase's established
+    currently works. For any small or medium change to an existing
+    file, use the edit tool (find the exact existing text, replace it
+    with your new text) - call it more than once if several separate
+    spots need changing. Only use the file-writing tool (which
+    replaces a file's entire content) for a genuinely new file, or a
+    change so extensive across the whole file that a full rewrite is
+    actually simpler than several edits. Match this codebase's established
     conventions (Streamlit + CrewAI, SQLite-backed auth, per-user
     users/<email>/ file storage) and build only what the requirements
     and direction actually call for - no unrelated refactors, no

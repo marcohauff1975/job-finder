@@ -59,7 +59,12 @@ from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFil
 from sdlc.tools.aws_audit import AWSLiveSetupTool
 from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
 from sdlc.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
-from sdlc.tools.build_workspace import build_workspace, WorkspaceFileReadTool, WorkspaceFileWriterTool
+from sdlc.tools.build_workspace import (
+    build_workspace,
+    WorkspaceEditTool,
+    WorkspaceFileReadTool,
+    WorkspaceFileWriterTool,
+)
 
 load_dotenv()
 
@@ -591,7 +596,12 @@ software_engineer = Agent(
     # production is the live app's own directory. These are pinned to
     # the current build's isolated workspace instead (see
     # tools/build_workspace.py's module docstring for why).
-    tools=[WorkspaceFileReadTool(), WorkspaceFileWriterTool(), CreateFeatureBranchAndOpenPRTool()],
+    tools=[
+        WorkspaceFileReadTool(),
+        WorkspaceEditTool(),
+        WorkspaceFileWriterTool(),
+        CreateFeatureBranchAndOpenPRTool(),
+    ],
     allow_delegation=True,
     verbose=True,
     # Default is 25 (crewai.Agent). Observed on production: wrong
