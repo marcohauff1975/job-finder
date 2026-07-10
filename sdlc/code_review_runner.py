@@ -39,10 +39,13 @@ Reads its parameters from environment variables:
 
 Exit code is 0 whenever a real, intentional outcome was reached -
 merged, or left open with Marco notified - since both are "working as
-intended," not failures. Exits nonzero only for genuine infrastructure
-failures: a crew produced no result, a step timed out, or submitting
-the review/merge/push to GitHub itself failed (e.g. auth or network
-error).
+intended," not failures. Even code_reviewer itself producing no result
+(an empty LLM response after retries, a known intermittent CrewAI/
+provider issue - not a verdict on the diff) escalates to pr_arbiter
+rather than failing outright, the same way an unconverged findings loop
+does. Exits nonzero only for genuine infrastructure failures: a step
+timed out, pr_arbiter *also* produced no result, or submitting the
+review/merge/push to GitHub itself failed (e.g. auth or network error).
 """
 
 import os
@@ -51,7 +54,14 @@ import subprocess
 import sys
 
 from notify import send_pr_unresolvable_notification
-from sdlc.SDLC import ArbiterVerdict, CodeReviewResult, arbiter_review, fix_review_findings, review_code
+from sdlc.SDLC import (
+    ArbiterVerdict,
+    CodeReviewFinding,
+    CodeReviewResult,
+    arbiter_review,
+    fix_review_findings,
+    review_code,
+)
 
 REVIEW_TIMEOUT_SECONDS = 600
 MAX_FIX_ATTEMPTS = 2
@@ -242,6 +252,8 @@ def main() -> int:
     changed_files: list[str] = []
     last_findings = []  # most recent round's findings that weren't a clean pass, for the audit trail
     result: CodeReviewResult | None = None
+    review_infra_failure = False  # code_reviewer never produced a result at all,
+    # as opposed to producing one with findings - see below
 
     for attempt in range(MAX_FIX_ATTEMPTS + 1):
         print(f"=== Running code_reviewer (round {attempt + 1}) ===")
@@ -253,8 +265,18 @@ def main() -> int:
         print(result)
 
         if result is None:
-            print("::error::code_reviewer crew produced no result")
-            return 1
+            # A repeated empty LLM response is a known intermittent CrewAI/
+            # provider issue (see review_code()'s docstring), not a verdict on
+            # this diff - escalate straight to pr_arbiter instead of failing
+            # the whole run outright, the same way an unconverged findings
+            # loop does below. This is exactly the gap that let PR #21's own
+            # code_review check fail outright with nobody notified.
+            print(
+                "::warning::code_reviewer crew produced no result after retries - "
+                "escalating to pr_arbiter instead of failing outright"
+            )
+            review_infra_failure = True
+            break
 
         if result.passed:
             break
@@ -285,7 +307,7 @@ def main() -> int:
 
         diff = _current_diff_vs_main()
 
-    if result.passed:
+    if result is not None and result.passed:
         if not _commit_and_push_accumulated_fixes(changed_files):
             return 1
         body = (
@@ -298,8 +320,24 @@ def main() -> int:
         return _approve_and_merge(pr_number, repo, bot_token, body)
 
     print("=== Review/fix loop did not converge - running pr_arbiter ===")
+    findings_for_arbiter = (
+        [
+            CodeReviewFinding(
+                file="(none)",
+                risk=(
+                    "code_reviewer could not complete an automated review - every "
+                    "attempt got an empty response from the LLM, a known "
+                    "intermittent CrewAI/provider issue, not a finding about this "
+                    "diff. Read the actual diff yourself and decide on its merits "
+                    "whether it's safe to merge."
+                ),
+            )
+        ]
+        if review_infra_failure
+        else result.findings
+    )
     try:
-        verdict: ArbiterVerdict | None = _with_timeout(arbiter_review, diff, result.findings)
+        verdict: ArbiterVerdict | None = _with_timeout(arbiter_review, diff, findings_for_arbiter)
     except _StepTimeout as exc:
         print(f"::error::{exc}")
         return 1

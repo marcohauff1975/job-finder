@@ -227,8 +227,39 @@ class TestEmptyDiff:
 
 
 class TestCrewFailures:
-    def test_returns_1_when_code_reviewer_produces_no_result(self, fake_subprocess, monkeypatch):
+    def test_escalates_to_arbiter_when_code_reviewer_never_produces_a_result(
+        self, fake_subprocess, monkeypatch
+    ):
+        """The bug that let PR #21's own code_review check fail outright: a
+        code_reviewer crew that never produces a result (repeated empty LLM
+        responses, not a verdict on the diff) must still reach pr_arbiter,
+        the same way an unconverged findings loop does - not just fail."""
         monkeypatch.setattr(runner, "review_code", lambda diff: None)
+        monkeypatch.setattr(
+            runner, "fix_review_findings", lambda findings: pytest.fail("should not be called")
+        )
+        arbiter_calls = []
+
+        def fake_arbiter(diff, findings):
+            arbiter_calls.append(findings)
+            return ArbiterVerdict(safe_to_merge=True, reasoning="diff looks safe on its own merits")
+
+        monkeypatch.setattr(runner, "arbiter_review", fake_arbiter)
+
+        exit_code = runner.main()
+
+        assert exit_code == 0
+        assert len(arbiter_calls) == 1
+        assert len(arbiter_calls[0]) == 1
+        assert "empty response" in arbiter_calls[0][0].risk
+        review_calls = [c for c in fake_subprocess if c[:3] == ["gh", "pr", "review"]]
+        assert any("--approve" in c for c in review_calls)
+
+    def test_returns_1_when_both_code_reviewer_and_arbiter_produce_no_result(
+        self, fake_subprocess, monkeypatch
+    ):
+        monkeypatch.setattr(runner, "review_code", lambda diff: None)
+        monkeypatch.setattr(runner, "arbiter_review", lambda diff, findings: None)
 
         exit_code = runner.main()
 
@@ -278,9 +309,7 @@ class TestReviewCodeTransientRetry:
         assert exit_code == 0
         assert calls["review"] == runner.MAX_TRANSIENT_RETRIES + 1
 
-    def test_gives_up_as_a_genuine_failure_once_the_retry_budget_is_exhausted(
-        self, fake_subprocess, monkeypatch
-    ):
+    def test_escalates_to_arbiter_once_the_retry_budget_is_exhausted(self, fake_subprocess, monkeypatch):
         calls = {"review": 0}
 
         def always_none(diff):
@@ -288,8 +317,11 @@ class TestReviewCodeTransientRetry:
             return None
 
         monkeypatch.setattr(runner, "review_code", always_none)
+        monkeypatch.setattr(
+            runner, "arbiter_review", lambda diff, findings: ArbiterVerdict(safe_to_merge=True, reasoning="ok")
+        )
 
         exit_code = runner.main()
 
-        assert exit_code == 1
+        assert exit_code == 0
         assert calls["review"] == runner.MAX_TRANSIENT_RETRIES + 1
