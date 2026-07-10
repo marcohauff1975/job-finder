@@ -410,23 +410,28 @@ def _render_requirements_challenge_page() -> None:
             session_id = st.session_state["rc_session_id"]
             build_result = None
             error = None
-            # Temporary diagnostic logging (see [DIAG] markers below) -
-            # PR #22 moved save_session() inside this `with` block on the
-            # theory that st.spinner()'s __exit__ was the only point a
-            # disconnected client's BaseException could abort the script
-            # before the result was saved. That fix is deployed but a
-            # session was still observed on production where the crew
-            # genuinely completed (per journalctl) yet save_session()
-            # never ran - meaning that theory was incomplete. These
-            # prints pin down exactly how far execution gets next time.
+            # TEMPORARY diagnostic logging (see [DIAG] markers below),
+            # to be removed once the actual gap is found - PR #22 moved
+            # save_session() inside this `with` block on the theory
+            # that st.spinner()'s __exit__ was the only point a
+            # disconnected client's BaseException could abort the
+            # script before the result was saved. That fix is deployed
+            # but a session was still observed on production where the
+            # crew genuinely completed (per journalctl) yet
+            # save_session() never ran - meaning that theory was
+            # incomplete. These prints pin down how far execution gets
+            # next time, logging only presence/shape, never the actual
+            # build content (which can include user-submitted feature
+            # requests and generated code) - journalctl is a broader-
+            # access surface than this app's per-user file storage.
             print(f"[DIAG] rc_push_to_engineer clicked, session={session_id}", flush=True)
             with st.spinner("👷 Software Engineer is building this feature..."):
                 try:
                     build_result = _run_with_retry(build_feature, pm_result, architect_result)
-                    print(f"[DIAG] build_feature returned, result={build_result!r}", flush=True)
+                    print(f"[DIAG] build_feature returned, got_result={build_result is not None}", flush=True)
                 except Exception as e:
                     error = f"The build failed: {e}"
-                    print(f"[DIAG] build_feature raised: {e!r}", flush=True)
+                    print(f"[DIAG] build_feature raised: {type(e).__name__}", flush=True)
 
                 if error is not None or build_result is None:
                     messages.append(
@@ -469,16 +474,18 @@ def _render_requirements_challenge_page() -> None:
         # it - st.spinner()'s __exit__ is where a disconnected client
         # would abort the script via a BaseException our `except
         # Exception` below can't catch, silently losing the result.
+        # TEMPORARY [DIAG] prints, see that handler for why they log
+        # only presence/shape and never actual user/agent content.
         print(f"[DIAG] challenge_requirement starting, session={session_id}", flush=True)
         with st.spinner("✨ Magic is happening, please wait..."):
             try:
                 result = _run_with_retry(
                     challenge_requirement, _format_conversation_for_agents(messages)
                 )
-                print(f"[DIAG] challenge_requirement returned, result={result!r}", flush=True)
+                print(f"[DIAG] challenge_requirement returned, got_result={result is not None}", flush=True)
             except Exception as e:
                 error = f"The requirements challenge failed: {e}"
-                print(f"[DIAG] challenge_requirement raised: {e!r}", flush=True)
+                print(f"[DIAG] challenge_requirement raised: {type(e).__name__}", flush=True)
 
             if error is not None or result is None:
                 messages.append(
