@@ -397,30 +397,40 @@ def _render_requirements_challenge_page() -> None:
             session_id = st.session_state["rc_session_id"]
             build_result = None
             error = None
-            try:
-                with st.spinner("👷 Software Engineer is building this feature..."):
+            # save_session() must run before the `with` block exits, not
+            # after: st.spinner()'s __exit__ touches Streamlit's delta
+            # queue, and if the client disconnected at any point during
+            # the (possibly minutes-long) crew call, that's exactly where
+            # Streamlit raises its own RerunException/StopException to
+            # abort the script - both are BaseException subclasses, not
+            # Exception, so they'd skip straight past any code placed
+            # after this block (including a bare `except Exception`)
+            # with no traceback, silently losing the result.
+            with st.spinner("👷 Software Engineer is building this feature..."):
+                try:
                     build_result = _run_with_retry(build_feature, pm_result, architect_result)
-            except Exception as e:
-                error = f"The build failed: {e}"
+                except Exception as e:
+                    error = f"The build failed: {e}"
 
-            if error is not None or build_result is None:
-                messages.append(
-                    {
-                        "role": "software_engineer",
-                        "content": f"⚠️ {error or 'Something went wrong and no build result was produced.'}",
-                    }
-                )
-            else:
-                messages.append(
-                    {
-                        "role": "software_engineer",
-                        "content": _format_engineer_result(build_result),
-                        "data": build_result.model_dump(),
-                    }
-                )
+                if error is not None or build_result is None:
+                    messages.append(
+                        {
+                            "role": "software_engineer",
+                            "content": f"⚠️ {error or 'Something went wrong and no build result was produced.'}",
+                        }
+                    )
+                else:
+                    messages.append(
+                        {
+                            "role": "software_engineer",
+                            "content": _format_engineer_result(build_result),
+                            "data": build_result.model_dump(),
+                        }
+                    )
 
-            st.session_state["rc_messages"] = messages
-            save_session(session_id, messages)
+                st.session_state["rc_messages"] = messages
+                save_session(session_id, messages)
+
             st.rerun()
 
     prompt = st.chat_input("Describe a feature, or answer the open questions above...")
@@ -436,41 +446,47 @@ def _render_requirements_challenge_page() -> None:
 
         result = None
         error = None
-        try:
-            with st.spinner("✨ Magic is happening, please wait..."):
+        # See the "Push to Software Engineer" handler above for why
+        # save_session() runs inside this `with` block rather than after
+        # it - st.spinner()'s __exit__ is where a disconnected client
+        # would abort the script via a BaseException our `except
+        # Exception` below can't catch, silently losing the result.
+        with st.spinner("✨ Magic is happening, please wait..."):
+            try:
                 result = _run_with_retry(
                     challenge_requirement, _format_conversation_for_agents(messages)
                 )
-        except Exception as e:
-            error = f"The requirements challenge failed: {e}"
+            except Exception as e:
+                error = f"The requirements challenge failed: {e}"
 
-        if error is not None or result is None:
-            messages.append(
-                {
-                    "role": "product_manager",
-                    "content": f"⚠️ {error or 'Something went wrong and no response was produced.'} "
-                    "Try rephrasing or resubmitting.",
-                }
-            )
-        else:
-            pm_result, architect_result = result
-            messages.append(
-                {
-                    "role": "product_manager",
-                    "content": _format_pm_result(pm_result),
-                    "data": pm_result.model_dump(),
-                }
-            )
-            messages.append(
-                {
-                    "role": "software_architect",
-                    "content": _format_architect_result(architect_result),
-                    "data": architect_result.model_dump(),
-                }
-            )
+            if error is not None or result is None:
+                messages.append(
+                    {
+                        "role": "product_manager",
+                        "content": f"⚠️ {error or 'Something went wrong and no response was produced.'} "
+                        "Try rephrasing or resubmitting.",
+                    }
+                )
+            else:
+                pm_result, architect_result = result
+                messages.append(
+                    {
+                        "role": "product_manager",
+                        "content": _format_pm_result(pm_result),
+                        "data": pm_result.model_dump(),
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "software_architect",
+                        "content": _format_architect_result(architect_result),
+                        "data": architect_result.model_dump(),
+                    }
+                )
 
-        st.session_state["rc_messages"] = messages
-        save_session(session_id, messages)
+            st.session_state["rc_messages"] = messages
+            save_session(session_id, messages)
+
         st.rerun()
 
 
