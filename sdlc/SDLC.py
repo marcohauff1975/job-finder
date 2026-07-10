@@ -59,6 +59,7 @@ from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFil
 from sdlc.tools.aws_audit import AWSLiveSetupTool
 from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
 from sdlc.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
+from sdlc.tools.build_workspace import build_workspace, WorkspaceFileReadTool, WorkspaceFileWriterTool
 
 load_dotenv()
 
@@ -584,7 +585,13 @@ software_architect = Agent(
 software_engineer = Agent(
     config=agents_config["software_engineer"],
     llm=_llm("software_engineer"),
-    tools=[FileReadTool(), FileWriterTool(), CreateFeatureBranchAndOpenPRTool()],
+    # WorkspaceFileReadTool/WorkspaceFileWriterTool, not the plain
+    # crewai_tools versions used elsewhere in this file - those resolve
+    # paths against whatever the process's cwd happens to be, which in
+    # production is the live app's own directory. These are pinned to
+    # the current build's isolated workspace instead (see
+    # tools/build_workspace.py's module docstring for why).
+    tools=[WorkspaceFileReadTool(), WorkspaceFileWriterTool(), CreateFeatureBranchAndOpenPRTool()],
     allow_delegation=True,
     verbose=True,
     # Default is 25 (crewai.Agent). Observed on production: wrong
@@ -968,7 +975,13 @@ def build_feature(
         "architecture_direction": _format_architecture_for_engineer(architect_result),
     }
     try:
-        result = feature_build_crew.kickoff(inputs=inputs)
+        # build_workspace() clones a fresh, throwaway copy of the repo
+        # for this one build and deletes it afterward regardless of
+        # outcome - software_engineer's file/git tools operate only
+        # inside it, never the live app's own checkout (see
+        # tools/build_workspace.py's module docstring).
+        with build_workspace():
+            result = feature_build_crew.kickoff(inputs=inputs)
     except Exception:
         # A final answer that mixes prose with a JSON block (e.g. the
         # engineer explaining a clarifying question instead of cleanly
@@ -980,7 +993,10 @@ def build_feature(
         # converter it falls back to for other failure modes) - that
         # exception must not escape this function uncaught, or the
         # caller never gets to show the user anything at all instead
-        # of a clean "something went wrong" message.
+        # of a clean "something went wrong" message. A failed
+        # build_workspace() clone (e.g. GITHUB_PR_PUSH_TOKEN missing)
+        # raises RuntimeError, which is also caught here for the same
+        # reason.
         return None
     build_result = result.pydantic
     if build_result is None or not build_result.pr_url:
