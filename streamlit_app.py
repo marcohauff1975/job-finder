@@ -410,20 +410,28 @@ def _render_requirements_challenge_page() -> None:
             session_id = st.session_state["rc_session_id"]
             build_result = None
             error = None
-            # save_session() must run before the `with` block exits, not
-            # after: st.spinner()'s __exit__ touches Streamlit's delta
-            # queue, and if the client disconnected at any point during
-            # the (possibly minutes-long) crew call, that's exactly where
-            # Streamlit raises its own RerunException/StopException to
-            # abort the script - both are BaseException subclasses, not
-            # Exception, so they'd skip straight past any code placed
-            # after this block (including a bare `except Exception`)
-            # with no traceback, silently losing the result.
+            # TEMPORARY diagnostic logging (see [DIAG] markers below),
+            # to be removed once the actual gap is found - PR #22 moved
+            # save_session() inside this `with` block on the theory
+            # that st.spinner()'s __exit__ was the only point a
+            # disconnected client's BaseException could abort the
+            # script before the result was saved. That fix is deployed
+            # but a session was still observed on production where the
+            # crew genuinely completed (per journalctl) yet
+            # save_session() never ran - meaning that theory was
+            # incomplete. These prints pin down how far execution gets
+            # next time, logging only presence/shape, never the actual
+            # build content (which can include user-submitted feature
+            # requests and generated code) - journalctl is a broader-
+            # access surface than this app's per-user file storage.
+            print(f"[DIAG] rc_push_to_engineer clicked, session={session_id}", flush=True)
             with st.spinner("👷 Software Engineer is building this feature..."):
                 try:
                     build_result = _run_with_retry(build_feature, pm_result, architect_result)
+                    print(f"[DIAG] build_feature returned, got_result={build_result is not None}", flush=True)
                 except Exception as e:
                     error = f"The build failed: {e}"
+                    print(f"[DIAG] build_feature raised: {type(e).__name__}", flush=True)
 
                 if error is not None or build_result is None:
                     messages.append(
@@ -443,7 +451,9 @@ def _render_requirements_challenge_page() -> None:
 
                 st.session_state["rc_messages"] = messages
                 save_session(session_id, messages)
+                print(f"[DIAG] save_session done, session={session_id}", flush=True)
 
+            print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
             st.rerun()
 
     prompt = st.chat_input("Describe a feature, or answer the open questions above...")
@@ -464,13 +474,18 @@ def _render_requirements_challenge_page() -> None:
         # it - st.spinner()'s __exit__ is where a disconnected client
         # would abort the script via a BaseException our `except
         # Exception` below can't catch, silently losing the result.
+        # TEMPORARY [DIAG] prints, see that handler for why they log
+        # only presence/shape and never actual user/agent content.
+        print(f"[DIAG] challenge_requirement starting, session={session_id}", flush=True)
         with st.spinner("✨ Magic is happening, please wait..."):
             try:
                 result = _run_with_retry(
                     challenge_requirement, _format_conversation_for_agents(messages)
                 )
+                print(f"[DIAG] challenge_requirement returned, got_result={result is not None}", flush=True)
             except Exception as e:
                 error = f"The requirements challenge failed: {e}"
+                print(f"[DIAG] challenge_requirement raised: {type(e).__name__}", flush=True)
 
             if error is not None or result is None:
                 messages.append(
@@ -499,7 +514,9 @@ def _render_requirements_challenge_page() -> None:
 
             st.session_state["rc_messages"] = messages
             save_session(session_id, messages)
+            print(f"[DIAG] save_session done, session={session_id}", flush=True)
 
+        print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
         st.rerun()
 
 
