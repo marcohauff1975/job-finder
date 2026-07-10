@@ -189,3 +189,51 @@ class WorkspaceFileWriterTool(BaseTool):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         return f"Content successfully written to {filename}"
+
+
+class WorkspaceEditTool(BaseTool):
+    name: str = "Edit a file (find and replace)"
+    description: str = (
+        "Replaces one exact occurrence of old_string with new_string in an "
+        "existing file, given a path relative to the repository root (e.g. "
+        "'streamlit_app.py'). Use this for any small or medium change "
+        "instead of rewriting the whole file with the file-writing tool - "
+        "asking a model to reproduce an entire large file from memory just "
+        "to change one line is exactly what caused a real production "
+        "outage (2026-07-10) when that write came out malformed. Several "
+        "small edits, each changing only what actually needs to change, "
+        "are far more reliable than one giant rewrite - use the "
+        "file-writing tool only for a brand-new file or a change so "
+        "extensive that a full rewrite is genuinely simpler. old_string "
+        "must match the file's existing text exactly (including "
+        "whitespace/indentation - read the file first, don't guess) and "
+        "must appear exactly once in the file, or the edit is refused; "
+        "include more surrounding lines in old_string to make it unique if "
+        "needed. Can only edit files inside the current build's isolated "
+        "workspace, never the live app."
+    )
+
+    def _run(self, filename: str, old_string: str, new_string: str) -> str:
+        try:
+            target = _safe_join(workspace_dir(), filename)
+        except (ValueError, RuntimeError) as e:
+            return f"Error: {e}"
+        if not target.exists() or not target.is_file():
+            return f"Error: File not found at path: {filename}"
+        if old_string == new_string:
+            return "Error: old_string and new_string are identical - nothing to change."
+        content = target.read_text()
+        count = content.count(old_string)
+        if count == 0:
+            return (
+                f"Error: old_string was not found in {filename} - it must match "
+                "the file's existing text exactly, including whitespace. Read "
+                "the file first rather than guessing."
+            )
+        if count > 1:
+            return (
+                f"Error: old_string appears {count} times in {filename} - it "
+                "must be unique. Include more surrounding lines for context."
+            )
+        target.write_text(content.replace(old_string, new_string, 1))
+        return f"Successfully replaced 1 occurrence in {filename}"
