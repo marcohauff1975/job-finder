@@ -100,3 +100,45 @@ def send_devops_giveup_notification(workflow_name: str, run_id: str) -> None:
         )
     except (BotoCoreError, ClientError):
         logger.exception("Failed to send devops-agent give-up notification for %s", workflow_name)
+
+
+def send_pr_unresolvable_notification(
+    pr_number: str, repo: str, reasoning: str, blocking_reasons: list[str]
+) -> None:
+    """Emails Marco when pr_arbiter decides a pull request isn't safe to
+    merge automatically after code_reviewer/pr_fix_agent couldn't
+    converge on their own - the PR is left open and unmerged, nothing
+    ships. Marco is only ever informed here, never asked to judge the
+    code himself, which is why this is written in plain language rather
+    than a findings dump."""
+    try:
+        client = boto3.client("ses", region_name=AWS_REGION)
+        reasons_text = "\n".join(f"- {r}" for r in blocking_reasons) or "(none listed)"
+        client.send_email(
+            Source=NOTIFY_FROM,
+            Destination={"ToAddresses": [NOTIFY_TO]},
+            Message={
+                "Subject": {
+                    "Data": f"Job Finder: PR #{pr_number} couldn't be completed automatically"
+                },
+                "Body": {
+                    "Text": {
+                        "Data": (
+                            f"The automated review/fix pipeline tried to get pull request "
+                            f"#{pr_number} ({repo}) to a clean, mergeable state and couldn't. "
+                            "A senior-engineer arbiter agent looked at what's left and decided "
+                            "it isn't safe to merge automatically:\n\n"
+                            f"{reasoning}\n\n"
+                            f"Specifically:\n{reasons_text}\n\n"
+                            f"Nothing has been merged - the PR is still open at "
+                            f"https://github.com/{repo}/pull/{pr_number}. You don't need to "
+                            "review the code yourself; if you still want this change, the "
+                            "straightforward next step is asking Claude Code (or another "
+                            "engineer) to take another look at that PR directly."
+                        )
+                    }
+                },
+            },
+        )
+    except (BotoCoreError, ClientError):
+        logger.exception("Failed to send PR-unresolvable notification for PR #%s", pr_number)

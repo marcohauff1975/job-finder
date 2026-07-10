@@ -1,20 +1,35 @@
 """
 Driver for the "PR code review" GitHub Actions workflow - calls
-review_code() from sdlc/SDLC.py and submits the result as an actual
-PR review (approve or request changes).
+review_code() from sdlc/SDLC.py, and if it requests changes, runs a
+review/fix loop (pr_fix_agent) entirely within this one script
+execution rather than relying on further GitHub Actions runs to
+iterate - so a PR never sits waiting on Marco (who isn't a developer
+and has explicitly said he can't judge code himself) to notice it's
+stuck and push a fix by hand. If the loop can't converge on a clean
+approval within MAX_FIX_ATTEMPTS rounds, pr_arbiter - a genuinely
+independent second opinion, not just "try again" - makes the real
+final call: approve and merge if what's left is actually safe to
+ship, or leave the PR open, unmerged, and email Marco a plain-language
+explanation if it isn't. Marco is only ever informed, never asked to
+approve or reject code himself.
 
 This runs as a distinct reviewer identity (REVIEWER_BOT_TOKEN, the
 "MarcoAIagent" account), not the workflow's default GITHUB_TOKEN -
 GitHub does not let a pull request's author satisfy its own required
 review, so the review has to come from a genuinely different account.
+The same token also authenticates the checkout itself (see
+.github/workflows/sdlc-pipeline.yml's code_review job): the repo's
+default GITHUB_TOKEN is read-only, and any fix commits this script
+pushes need write access - and the checkout must be on the PR's real
+head branch (not the default merge-ref, detached-HEAD checkout), or a
+push here would have nowhere real to land.
 
-Review/fix loop is capped at MAX_CHANGE_REQUESTS rounds: once
-code_reviewer has already requested changes that many times on this
-PR, the next run approves regardless of remaining findings (listing
-them for the record) rather than requesting changes again - this keeps
-a slow-converging review from blocking the PR forever. Any approval,
-whether earned outright or granted under the cap, is followed by an
-automatic squash-merge to the base branch.
+Any fix commits accumulated across the loop are committed and pushed
+exactly once, at the very end, regardless of the final outcome - never
+once per attempt. Pushing mid-loop would itself trigger a fresh
+`pull_request: synchronize` event and a concurrent second run of this
+same job for every attempt, redoing (and racing) the very loop this
+script already handles internally.
 
 Reads its parameters from environment variables:
     DIFF_FILE          - path to a file containing the PR's diff
@@ -22,28 +37,24 @@ Reads its parameters from environment variables:
     REPO               - "owner/repo"
     REVIEWER_BOT_TOKEN - the reviewer identity's own token
 
-Exit code is 0 if a review was successfully submitted and, on
-approval, successfully merged - a request-changes review is what
-actually blocks the merge under branch protection, so failing this
-script's exit code for that case would be redundant and would also
-make the Actions run itself look broken rather than "working as
-intended." Exits nonzero if the crew produced no result, if
-review_code timed out, or if submitting the review or the merge to
-GitHub itself failed (e.g. auth or network error) - those are genuine
-failures, not verdicts.
+Exit code is 0 whenever a real, intentional outcome was reached -
+merged, or left open with Marco notified - since both are "working as
+intended," not failures. Exits nonzero only for genuine infrastructure
+failures: a crew produced no result, a step timed out, or submitting
+the review/merge/push to GitHub itself failed (e.g. auth or network
+error).
 """
 
-import json
 import os
 import signal
 import subprocess
 import sys
 
-from sdlc.SDLC import review_code
+from notify import send_pr_unresolvable_notification
+from sdlc.SDLC import ArbiterVerdict, CodeReviewResult, arbiter_review, fix_review_findings, review_code
 
 REVIEW_TIMEOUT_SECONDS = 600
-REVIEWER_BOT_USERNAME = "MarcoAIagent"
-MAX_CHANGE_REQUESTS = 2
+MAX_FIX_ATTEMPTS = 2
 
 
 def _require(name: str) -> str:
@@ -69,12 +80,26 @@ def _format_findings(findings) -> str:
     return "\n".join(lines)
 
 
-class _ReviewTimeout(Exception):
+def _run(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+class _StepTimeout(Exception):
     pass
 
 
 def _raise_timeout(signum, frame):
-    raise _ReviewTimeout(f"code_reviewer did not finish within {REVIEW_TIMEOUT_SECONDS}s")
+    raise _StepTimeout("An automated review/fix step did not finish in time")
+
+
+def _with_timeout(func, *args, **kwargs):
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.alarm(REVIEW_TIMEOUT_SECONDS)
+    try:
+        return func(*args, **kwargs)
+    finally:
+        signal.alarm(0)
 
 
 def _bot_env(bot_token: str) -> dict:
@@ -86,25 +111,6 @@ def _bot_env(bot_token: str) -> dict:
         "HOME": os.environ.get("HOME", ""),
         "GH_TOKEN": bot_token,
     }
-
-
-def _count_bot_change_requests(pr_number: str, repo: str, bot_token: str) -> int:
-    """How many times REVIEWER_BOT_USERNAME has already requested changes on
-    this PR - used to cap the review/fix loop so it can't stall forever."""
-    proc = subprocess.run(
-        ["gh", "api", f"repos/{repo}/pulls/{pr_number}/reviews"],
-        env=_bot_env(bot_token),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    reviews = json.loads(proc.stdout)
-    return sum(
-        1
-        for r in reviews
-        if r.get("user", {}).get("login") == REVIEWER_BOT_USERNAME
-        and r.get("state") == "CHANGES_REQUESTED"
-    )
 
 
 def _submit_review(pr_number: str, repo: str, bot_token: str, *, approve: bool, body: str) -> bool:
@@ -142,6 +148,59 @@ def _approve_and_merge(pr_number: str, repo: str, bot_token: str, body: str) -> 
     return 0
 
 
+def _current_diff_vs_main() -> str:
+    """The PR's real current diff against origin/main, including any
+    uncommitted working-tree edits pr_fix_agent has made in this round -
+    this is what gets re-reviewed next, not the diff the job started
+    with. Requires origin/main to already be fetched."""
+    proc = subprocess.run(
+        ["git", "diff", "origin/main"], capture_output=True, text=True, check=True
+    )
+    return proc.stdout
+
+
+def _commit_and_push_accumulated_fixes(changed_files: list[str]) -> bool:
+    """Commits and pushes every file pr_fix_agent touched across every
+    attempt, in one commit, at the very end - regardless of whether the
+    PR ends up merged or left open, so partial progress is never
+    silently lost. Returns True if there was nothing to push or the
+    push succeeded; False on a genuine git failure."""
+    if not changed_files:
+        return True
+
+    code, out, err = _run(["git", "config", "user.name", "pr-fix-agent"])
+    if code != 0:
+        print(f"::error::git config user.name failed: {err or out}")
+        return False
+    code, out, err = _run(["git", "config", "user.email", "pr-fix-agent@users.noreply.github.com"])
+    if code != 0:
+        print(f"::error::git config user.email failed: {err or out}")
+        return False
+
+    code, out, err = _run(["git", "add", *changed_files])
+    if code != 0:
+        print(f"::error::git add failed: {err or out}")
+        return False
+
+    code, out, err = _run(["git", "commit", "-m", "[pr-fix-agent] Address code review findings"])
+    if code != 0:
+        print(f"::error::git commit failed (maybe nothing actually changed?): {err or out}")
+        return False
+
+    code, out, err = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    if code != 0:
+        print(f"::error::git rev-parse failed: {err or out}")
+        return False
+    branch = out
+
+    code, out, err = _run(["git", "push", "origin", branch], timeout=60)
+    if code != 0:
+        print(f"::error::git push failed: {err or out}")
+        return False
+    print(f"Pushed fix commit to {branch}.")
+    return True
+
+
 def main() -> int:
     diff_file = _require("DIFF_FILE")
     pr_number = _require("PR_NUMBER")
@@ -154,44 +213,92 @@ def main() -> int:
         print("Empty diff - nothing to review.")
         return 0
 
-    print("=== Running code_reviewer ===")
-    signal.signal(signal.SIGALRM, _raise_timeout)
-    signal.alarm(REVIEW_TIMEOUT_SECONDS)
-    try:
-        result = review_code(diff)
-    except _ReviewTimeout as exc:
-        print(f"::error::{exc}")
-        return 1
-    finally:
-        signal.alarm(0)
-    print(result)
+    changed_files: list[str] = []
+    last_findings = []  # most recent round's findings that weren't a clean pass, for the audit trail
+    result: CodeReviewResult | None = None
 
-    if result is None:
-        print("::error::code_reviewer crew produced no result")
-        return 1
+    for attempt in range(MAX_FIX_ATTEMPTS + 1):
+        print(f"=== Running code_reviewer (round {attempt + 1}) ===")
+        try:
+            result = _with_timeout(review_code, diff)
+        except _StepTimeout as exc:
+            print(f"::error::{exc}")
+            return 1
+        print(result)
+
+        if result is None:
+            print("::error::code_reviewer crew produced no result")
+            return 1
+
+        if result.passed:
+            break
+
+        last_findings = result.findings
+        if attempt >= MAX_FIX_ATTEMPTS:
+            break  # findings remain, but the fix loop is out of attempts
+
+        print(f"=== Running pr_fix_agent (attempt {attempt + 1}) ===")
+        try:
+            fix_result = _with_timeout(fix_review_findings, result.findings)
+        except _StepTimeout as exc:
+            print(f"::error::{exc}")
+            return 1
+
+        if fix_result is None:
+            print("::error::pr_fix_agent crew produced no result - stopping the fix loop early")
+            break
+        print(fix_result)
+
+        if not fix_result.files_changed:
+            print("pr_fix_agent made no changes - stopping the fix loop early.")
+            break
+
+        for path in fix_result.files_changed:
+            if path not in changed_files:
+                changed_files.append(path)
+
+        diff = _current_diff_vs_main()
 
     if result.passed:
-        body = "**Automated review by code_reviewer:** no issues found."
-        return _approve_and_merge(pr_number, repo, bot_token, body)
-
-    prior_change_requests = _count_bot_change_requests(pr_number, repo, bot_token)
-    if prior_change_requests >= MAX_CHANGE_REQUESTS:
+        if not _commit_and_push_accumulated_fixes(changed_files):
+            return 1
         body = (
-            f"**Automated review by code_reviewer:** findings remain after "
-            f"{prior_change_requests} review round(s), which reaches the "
-            f"{MAX_CHANGE_REQUESTS}-round cap - approving so this PR isn't blocked "
-            "indefinitely. Remaining findings for the record:\n\n"
-            + _format_findings(result.findings)
+            "**Automated review by code_reviewer:** no issues found."
+            if not changed_files
+            else "**Automated review by code_reviewer:** no issues found, after "
+            "pr_fix_agent addressed these findings from an earlier round:\n\n"
+            + _format_findings(last_findings)
         )
         return _approve_and_merge(pr_number, repo, bot_token, body)
 
+    print("=== Review/fix loop did not converge - running pr_arbiter ===")
+    try:
+        verdict: ArbiterVerdict | None = _with_timeout(arbiter_review, diff, result.findings)
+    except _StepTimeout as exc:
+        print(f"::error::{exc}")
+        return 1
+
+    if verdict is None:
+        print("::error::pr_arbiter crew produced no result")
+        return 1
+    print(verdict)
+
+    if not _commit_and_push_accumulated_fixes(changed_files):
+        return 1
+
+    if verdict.safe_to_merge:
+        body = f"**Secondary review by pr_arbiter:** {verdict.reasoning}"
+        return _approve_and_merge(pr_number, repo, bot_token, body)
+
     body = (
-        "**Automated review by code_reviewer** found issues that need addressing:\n\n"
-        + _format_findings(result.findings)
+        "**Secondary review by pr_arbiter:** not safe to merge automatically.\n\n"
+        f"{_sanitize_markdown_line(verdict.reasoning)}\n\n"
+        + "\n".join(f"- {_sanitize_markdown_line(r)}" for r in verdict.blocking_reasons)
     )
     if not _submit_review(pr_number, repo, bot_token, approve=False, body=body):
         return 1
-    print("Requested changes.")
+    print("Left open, unmerged - notifying Marco.")
+    send_pr_unresolvable_notification(pr_number, repo, verdict.reasoning, verdict.blocking_reasons)
     return 0
 
 
