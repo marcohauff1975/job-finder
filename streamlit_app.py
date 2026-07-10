@@ -388,8 +388,6 @@ def _render_requirements_challenge_page() -> None:
                 st.rerun()
 
     messages = st.session_state.get("rc_messages", [])
-    if not messages:
-        st.info("Describe a feature idea below to start a new challenge.")
 
     avatars = {
         "user": "🧑‍💼",
