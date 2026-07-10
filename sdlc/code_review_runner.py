@@ -55,6 +55,9 @@ from sdlc.SDLC import ArbiterVerdict, CodeReviewResult, arbiter_review, fix_revi
 
 REVIEW_TIMEOUT_SECONDS = 600
 MAX_FIX_ATTEMPTS = 2
+MAX_TRANSIENT_RETRIES = 2  # retries for a review_code() crash/None result itself
+# (an empty LLM response, not a real verdict on the diff) - separate from
+# MAX_FIX_ATTEMPTS, which counts genuine "changes requested" rounds
 
 
 def _require(name: str) -> str:
@@ -100,6 +103,23 @@ def _with_timeout(func, *args, **kwargs):
         return func(*args, **kwargs)
     finally:
         signal.alarm(0)
+
+
+def _review_code_with_retries(diff: str) -> CodeReviewResult | None:
+    """review_code() returning None means either a caught crew exception or
+    an empty LLM response - both are a known intermittent flake (not a
+    verdict on the diff), so retry a couple of times before treating it as
+    a genuine infrastructure failure. A timeout is not retried here; it
+    already means REVIEW_TIMEOUT_SECONDS was spent once and propagates
+    straight up to the caller."""
+    result: CodeReviewResult | None = None
+    for retry in range(MAX_TRANSIENT_RETRIES + 1):
+        result = _with_timeout(review_code, diff)
+        if result is not None:
+            return result
+        if retry < MAX_TRANSIENT_RETRIES:
+            print("code_reviewer crew produced no result - retrying " f"({retry + 1}/{MAX_TRANSIENT_RETRIES})...")
+    return result
 
 
 def _bot_env(bot_token: str) -> dict:
@@ -226,7 +246,7 @@ def main() -> int:
     for attempt in range(MAX_FIX_ATTEMPTS + 1):
         print(f"=== Running code_reviewer (round {attempt + 1}) ===")
         try:
-            result = _with_timeout(review_code, diff)
+            result = _review_code_with_retries(diff)
         except _StepTimeout as exc:
             print(f"::error::{exc}")
             return 1

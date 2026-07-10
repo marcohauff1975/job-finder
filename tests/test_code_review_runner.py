@@ -246,3 +246,50 @@ class TestCrewFailures:
         exit_code = runner.main()
 
         assert exit_code == 1
+
+
+class TestReviewCodeTransientRetry:
+    """A None from review_code() means an empty LLM response or a caught
+    crew exception (see sdlc/SDLC.py's review_code) - a known intermittent
+    flake unrelated to the diff itself, so it must not crash the whole run
+    on the very first hiccup the way this exact bug did against PR #21."""
+
+    def test_recovers_after_transient_failures_within_the_retry_budget(
+        self, fake_subprocess, monkeypatch
+    ):
+        calls = {"review": 0}
+
+        def flaky_review(diff):
+            calls["review"] += 1
+            if calls["review"] <= runner.MAX_TRANSIENT_RETRIES:
+                return None
+            return CodeReviewResult(passed=True, findings=[])
+
+        monkeypatch.setattr(runner, "review_code", flaky_review)
+        monkeypatch.setattr(
+            runner, "fix_review_findings", lambda findings: pytest.fail("should not be called")
+        )
+        monkeypatch.setattr(
+            runner, "arbiter_review", lambda diff, findings: pytest.fail("should not be called")
+        )
+
+        exit_code = runner.main()
+
+        assert exit_code == 0
+        assert calls["review"] == runner.MAX_TRANSIENT_RETRIES + 1
+
+    def test_gives_up_as_a_genuine_failure_once_the_retry_budget_is_exhausted(
+        self, fake_subprocess, monkeypatch
+    ):
+        calls = {"review": 0}
+
+        def always_none(diff):
+            calls["review"] += 1
+            return None
+
+        monkeypatch.setattr(runner, "review_code", always_none)
+
+        exit_code = runner.main()
+
+        assert exit_code == 1
+        assert calls["review"] == runner.MAX_TRANSIENT_RETRIES + 1

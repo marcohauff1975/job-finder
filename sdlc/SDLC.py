@@ -674,7 +674,14 @@ AGENTS_BY_KEY = {
 def review_code(diff: str) -> CodeReviewResult | None:
     """Run the code review crew over a diff and return the structured
     result, or None if it failed."""
-    result = code_review_crew.kickoff(inputs={"diff": diff})
+    try:
+        result = code_review_crew.kickoff(inputs={"diff": diff})
+    except Exception:
+        # Same defensive catch as fix_review_findings/arbiter_review below -
+        # an empty/None LLM response (a known intermittent CrewAI/provider
+        # flake, not a verdict on the diff) must not crash the whole review
+        # run; the caller (sdlc/code_review_runner.py) retries on None.
+        return None
     return result.pydantic if result.pydantic else None
 
 
