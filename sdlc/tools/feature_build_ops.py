@@ -22,7 +22,10 @@ runs in - same reasoning as sdlc_deploy_mode.py's GITHUB_VARIABLES_TOKEN.
 """
 
 import os
+import stat
 import subprocess
+import tempfile
+from contextlib import contextmanager
 
 from crewai.tools import BaseTool
 
@@ -33,6 +36,29 @@ _GITHUB_REPO = "marcohauff1975/job-finder"
 def _run(args: list[str], timeout: int = 30, env: dict | None = None) -> tuple[int, str, str]:
     result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+@contextmanager
+def _git_askpass_env(push_token: str):
+    """A GIT_ASKPASS script that echoes the token from an environment
+    variable, plus the env dict that points git at it - keeps the
+    token out of argv entirely (unlike embedding it in the push URL,
+    which puts it in plain sight of `ps aux`/`/proc/<pid>/cmdline`
+    for as long as the git process runs), at the cost of a short-lived
+    temp file that exists only for this one push."""
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
+        f.write('#!/bin/sh\necho "$GITHUB_PR_PUSH_TOKEN"\n')
+        askpass_path = f.name
+    os.chmod(askpass_path, stat.S_IRWXU)
+    try:
+        yield {
+            **os.environ,
+            "GITHUB_PR_PUSH_TOKEN": push_token,
+            "GIT_ASKPASS": askpass_path,
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    finally:
+        os.unlink(askpass_path)
 
 
 class CreateFeatureBranchAndOpenPRTool(BaseTool):
@@ -95,25 +121,23 @@ class CreateFeatureBranchAndOpenPRTool(BaseTool):
         if code != 0:
             return f"git commit failed (maybe nothing actually changed?): {err or out}"
 
-        # Push over HTTPS with the token embedded in the URL rather than
-        # through the ambient `origin` remote - on the production server
-        # `origin` is a read-only deploy key by design (see module
-        # docstring), so this must not depend on whatever push access
-        # `origin` happens to have in a given environment.
-        # No -u/--set-upstream here: that would make git record this
-        # literal URL - token included - as the branch's upstream
-        # remote in .git/config, persisting the secret in plaintext on
-        # disk after the push completes instead of it existing only
-        # transiently in this one subprocess call. This checkout gets
-        # reset via `git checkout -B` on the next run anyway, so there's
-        # nothing that actually needs upstream tracking.
-        push_url = f"https://x-access-token:{push_token}@github.com/{_GITHUB_REPO}.git"
-        code, out, err = _run(["git", "push", push_url, f"{branch_name}:{branch_name}"], timeout=60)
+        # Push over HTTPS via GIT_ASKPASS (see _git_askpass_env) rather
+        # than through the ambient `origin` remote - on the production
+        # server `origin` is a read-only deploy key by design (see
+        # module docstring), so this must not depend on whatever push
+        # access `origin` happens to have in a given environment. The
+        # token stays in the environment only, never in argv (a URL
+        # with the token embedded would be visible for the life of the
+        # process via `ps aux`/`/proc/<pid>/cmdline`) and never touches
+        # .git/config (no -u/--set-upstream - this checkout gets reset
+        # via `git checkout -B` on the tool's next run anyway).
+        push_url = f"https://x-access-token@github.com/{_GITHUB_REPO}.git"
+        with _git_askpass_env(push_token) as env:
+            code, out, err = _run(
+                ["git", "push", push_url, f"{branch_name}:{branch_name}"], timeout=60, env=env
+            )
         if code != 0:
-            # Never let the token leak into the agent's output if git
-            # happens to echo the URL back in an error message.
-            safe_err = (err or out).replace(push_token, "***")
-            return f"git push failed: {safe_err}"
+            return f"git push failed: {err or out}"
 
         # gh pr create needs its own auth - GH_TOKEN overrides whatever
         # (if anything) gh is already logged in as in this environment.
