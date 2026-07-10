@@ -923,6 +923,14 @@ st.markdown(
     .st-key-format_picker_columns div[data-testid="stHorizontalBlock"] > div > div > div:has(.stButton) {
         margin-top: auto;
     }
+
+    /* Streamlit's chat_input textarea defaults to overflow-x: auto,
+       which some browsers (observed in Safari) render as a persistent
+       thin horizontal scrollbar even though the box only ever needs to
+       grow vertically - there's nothing to scroll sideways. */
+    textarea[data-testid="stChatInputTextArea"] {
+        overflow-x: hidden;
+    }
     </style>
     """,
     unsafe_allow_html=True,
