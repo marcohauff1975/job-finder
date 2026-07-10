@@ -122,6 +122,17 @@ class DevOpsFixResult(BaseModel):
     workflow_retriggered: bool
 
 
+class PRFixResult(BaseModel):
+    files_changed: list[str] = []
+    fix_summary: str
+
+
+class ArbiterVerdict(BaseModel):
+    safe_to_merge: bool
+    reasoning: str
+    blocking_reasons: list[str] = []
+
+
 class ReadinessFinding(BaseModel):
     repo: str  # e.g. "crewai-starter", "crewai-infra", "crewai-infra (live AWS account)", "crewai-starter (GitHub)"
     issue: str
@@ -375,6 +386,59 @@ devops_fix_crew = Crew(
     verbose=True,
 )
 
+# --- PR Fix Agent + Arbiter: close the review/fix loop without Marco ---
+# Marco isn't a developer and can't judge code_reviewer's findings
+# himself, so these two exist to make sure a PR never needs him as the
+# fallback. pr_fix_agent only edits files - it never commits or pushes
+# itself (see sdlc/code_review_runner.py, which owns git end to end and
+# pushes once, after every attempt is done, not once per attempt - see
+# that file's own docstring for why). pr_arbiter is the real final
+# call once the review/fix loop is exhausted: unlike the old behavior
+# it replaces (auto-approve after N rounds regardless of remaining
+# findings), it actually judges whether what's left is safe to ship,
+# and defaults to leaving the PR open and unmerged - not asking Marco -
+# when it isn't.
+
+pr_fix_agent = Agent(
+    config=agents_config["pr_fix_agent"],
+    llm=_llm("pr_fix_agent"),
+    tools=[FileReadTool(), FileWriterTool()],
+    verbose=True,
+)
+
+pr_fix_task = Task(
+    config=tasks_config["pr_fix_task"],
+    agent=pr_fix_agent,
+    output_pydantic=PRFixResult,
+)
+
+pr_fix_crew = Crew(
+    agents=[pr_fix_agent],
+    tasks=[pr_fix_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+pr_arbiter = Agent(
+    config=agents_config["pr_arbiter"],
+    llm=_llm("pr_arbiter"),
+    tools=[FileReadTool()],
+    verbose=True,
+)
+
+pr_arbiter_task = Task(
+    config=tasks_config["pr_arbiter_task"],
+    agent=pr_arbiter,
+    output_pydantic=ArbiterVerdict,
+)
+
+pr_arbiter_crew = Crew(
+    agents=[pr_arbiter],
+    tasks=[pr_arbiter_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
 # --- Technology Excellence panel: 6 agents + 7 tasks + crew ------------
 # Scoped specifically to the Job Finder project as a whole - always
 # BOTH the app repo (crewai-starter) and its sibling infra repo
@@ -593,6 +657,8 @@ AGENTS_BY_KEY = {
     "prod_tester": prod_tester,
     "rollback_agent": rollback_agent,
     "devops_agent": devops_agent,
+    "pr_fix_agent": pr_fix_agent,
+    "pr_arbiter": pr_arbiter,
     "cto": cto,
     "aws_lead_engineer": aws_lead_engineer,
     "python_lead_engineer": python_lead_engineer,
@@ -609,6 +675,46 @@ def review_code(diff: str) -> CodeReviewResult | None:
     """Run the code review crew over a diff and return the structured
     result, or None if it failed."""
     result = code_review_crew.kickoff(inputs={"diff": diff})
+    return result.pydantic if result.pydantic else None
+
+
+def _format_findings_for_agent(findings: list[CodeReviewFinding]) -> str:
+    return "\n".join(
+        f"- {f.file}:{f.line} - {f.risk}" if f.line else f"- {f.file} - {f.risk}"
+        for f in findings
+    )
+
+
+def fix_review_findings(findings: list[CodeReviewFinding]) -> PRFixResult | None:
+    """Run pr_fix_agent against code_reviewer's findings and return what
+    it changed, or None if the crew failed to produce a result. Only
+    edits files in the current working tree - never commits, pushes, or
+    opens anything itself; the calling script (sdlc/
+    code_review_runner.py) owns git end to end and pushes once, after
+    every attempt is done, not once per attempt."""
+    inputs = {"findings": _format_findings_for_agent(findings)}
+    try:
+        result = pr_fix_crew.kickoff(inputs=inputs)
+    except Exception:
+        # Same defensive catch as build_feature() below, for the same
+        # reason: a final answer that mixes prose with a JSON block can
+        # make CrewAI's partial-JSON handling raise a bare pydantic
+        # ValidationError instead of falling back gracefully, and that
+        # must not escape this function uncaught.
+        return None
+    return result.pydantic if result.pydantic else None
+
+
+def arbiter_review(diff: str, findings: list[CodeReviewFinding]) -> ArbiterVerdict | None:
+    """Run pr_arbiter - the real, final judgment call once
+    code_reviewer/pr_fix_agent have exhausted their review/fix rounds
+    without converging - and return its verdict, or None if the crew
+    failed to produce a result."""
+    inputs = {"diff": diff, "findings": _format_findings_for_agent(findings)}
+    try:
+        result = pr_arbiter_crew.kickoff(inputs=inputs)
+    except Exception:
+        return None
     return result.pydantic if result.pydantic else None
 
 
