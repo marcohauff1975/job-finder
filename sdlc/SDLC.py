@@ -523,6 +523,14 @@ software_engineer = Agent(
     tools=[FileReadTool(), FileWriterTool(), CreateFeatureBranchAndOpenPRTool()],
     allow_delegation=True,
     verbose=True,
+    # Default is 25 (crewai.Agent). Observed on production: wrong
+    # file-path guesses (app.py, main.py, Home.py, pages/...) and a
+    # malformed file_writer_tool call alone burned well over half that
+    # budget before the agent ever reached create_feature_branch_and_
+    # open_pr, at which point it wrote a prose "I'll do X" answer
+    # instead of actually calling the tool - consistent with running
+    # low on iterations rather than not understanding the instruction.
+    max_iter=40,
 )
 
 feature_requirements_task = Task(
