@@ -68,6 +68,12 @@ def load_session(session_id: str) -> dict | None:
         return None
 
 
+def delete_session(session_id: str) -> None:
+    """Removes a session's file - a no-op if it's already gone, so
+    callers don't need to check existence first."""
+    _session_path(session_id).unlink(missing_ok=True)
+
+
 def save_session(session_id: str, messages: list[dict]) -> None:
     """Overwrites the session file with the full current message list -
     called after every turn, so a session is saved as-you-go rather
