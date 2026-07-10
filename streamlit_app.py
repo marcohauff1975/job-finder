@@ -449,9 +449,19 @@ def _render_requirements_challenge_page() -> None:
                         }
                     )
 
-                st.session_state["rc_messages"] = messages
+                # save_session() (plain file I/O, no Streamlit API) now
+                # runs before the st.session_state write, not after -
+                # observed on production: even with the append/save code
+                # already moved inside this `with` block (see the long
+                # comment above), a run died between the "build_feature
+                # returned" print and "save_session done" ever logging,
+                # meaning st.session_state.__setitem__ itself - not just
+                # st.spinner()'s __exit__ - can be where a disconnected
+                # client's BaseException fires. save_session() has no
+                # such risk since it never touches Streamlit at all.
                 save_session(session_id, messages)
                 print(f"[DIAG] save_session done, session={session_id}", flush=True)
+                st.session_state["rc_messages"] = messages
 
             print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
             st.rerun()
@@ -512,9 +522,11 @@ def _render_requirements_challenge_page() -> None:
                     }
                 )
 
-            st.session_state["rc_messages"] = messages
+            # See the "Push to Software Engineer" handler above for why
+            # save_session() now runs before the st.session_state write.
             save_session(session_id, messages)
             print(f"[DIAG] save_session done, session={session_id}", flush=True)
+            st.session_state["rc_messages"] = messages
 
         print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
         st.rerun()
