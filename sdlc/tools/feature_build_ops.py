@@ -100,10 +100,15 @@ class CreateFeatureBranchAndOpenPRTool(BaseTool):
         # `origin` is a read-only deploy key by design (see module
         # docstring), so this must not depend on whatever push access
         # `origin` happens to have in a given environment.
+        # No -u/--set-upstream here: that would make git record this
+        # literal URL - token included - as the branch's upstream
+        # remote in .git/config, persisting the secret in plaintext on
+        # disk after the push completes instead of it existing only
+        # transiently in this one subprocess call. This checkout gets
+        # reset via `git checkout -B` on the next run anyway, so there's
+        # nothing that actually needs upstream tracking.
         push_url = f"https://x-access-token:{push_token}@github.com/{_GITHUB_REPO}.git"
-        code, out, err = _run(
-            ["git", "push", "-u", push_url, f"{branch_name}:{branch_name}"], timeout=60
-        )
+        code, out, err = _run(["git", "push", push_url, f"{branch_name}:{branch_name}"], timeout=60)
         if code != 0:
             # Never let the token leak into the agent's output if git
             # happens to echo the URL back in an error message.
