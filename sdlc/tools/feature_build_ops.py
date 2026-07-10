@@ -5,69 +5,46 @@ request - never push directly to main. The existing "PR code review"
 GitHub Actions workflow (triggered on pull_request: opened) then picks
 the PR up automatically, exactly as it would for a human-authored PR.
 
+All git operations run inside the current build's isolated workspace
+(see build_workspace.py) - never in the live app's own checkout. That
+isolation is the fix for a real production outage (2026-07-10): this
+tool used to run git commands in whatever directory the process's cwd
+happened to be, which in production is the exact directory
+jobfinder.service serves live traffic from.
+
 Needs its own env var, GITHUB_PR_PUSH_TOKEN - a fine-grained token
 scoped to "Contents: Read and write" + "Pull requests: Read and write"
-on just this repo. This can't reuse whatever git/gh auth happens to
-already be configured in the environment (unlike devops_ops.py, which
-genuinely can assume that): on the production server, origin is a
-read-only deploy key (~/.ssh/id_ed25519_jobfinder) by design, so the
-server can `git pull` to deploy but was deliberately never given push
-access - discovered when this tool's git push kept failing there with
-"The key you are authenticating with has been marked as read only."
-Pushing the branch and opening the PR both go through this token
-explicitly (an HTTPS URL for the push, GH_TOKEN in the environment for
-`gh pr create`) rather than through the ambient origin remote or gh
-auth, so this works the same way regardless of what environment it
-runs in - same reasoning as sdlc_deploy_mode.py's GITHUB_VARIABLES_TOKEN.
+on just this repo (also used by build_workspace.py to clone). This
+can't reuse whatever git/gh auth happens to already be configured in
+the environment (unlike devops_ops.py, which genuinely can assume
+that): the production server's own git checkout uses a read-only
+deploy key by design (~/.ssh/id_ed25519_jobfinder, can pull to deploy,
+was never meant to push) - discovered when this tool's git push kept
+failing there with "The key you are authenticating with has been
+marked as read only." Pushing the branch and opening the PR both go
+through this token explicitly (GIT_ASKPASS for the push, GH_TOKEN in
+the environment for `gh pr create`) rather than through any ambient
+remote or gh auth, so this works the same way regardless of what
+environment it runs in - same reasoning as sdlc_deploy_mode.py's
+GITHUB_VARIABLES_TOKEN.
 """
 
 import os
-import stat
-import subprocess
-import tempfile
-from contextlib import contextmanager
 
 from crewai.tools import BaseTool
 
+from sdlc.tools.build_workspace import _GITHUB_REPO, git_askpass_env, run_in_workspace, workspace_dir
+
 _PROTECTED_BRANCHES = {"main", "master"}
-_GITHUB_REPO = "marcohauff1975/job-finder"
-
-
-def _run(args: list[str], timeout: int = 30, env: dict | None = None) -> tuple[int, str, str]:
-    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
-
-
-@contextmanager
-def _git_askpass_env(push_token: str):
-    """A GIT_ASKPASS script that echoes the token from an environment
-    variable, plus the env dict that points git at it - keeps the
-    token out of argv entirely (unlike embedding it in the push URL,
-    which puts it in plain sight of `ps aux`/`/proc/<pid>/cmdline`
-    for as long as the git process runs), at the cost of a short-lived
-    temp file that exists only for this one push."""
-    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
-        f.write('#!/bin/sh\necho "$GITHUB_PR_PUSH_TOKEN"\n')
-        askpass_path = f.name
-    os.chmod(askpass_path, stat.S_IRWXU)
-    try:
-        yield {
-            **os.environ,
-            "GITHUB_PR_PUSH_TOKEN": push_token,
-            "GIT_ASKPASS": askpass_path,
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-    finally:
-        os.unlink(askpass_path)
 
 
 class CreateFeatureBranchAndOpenPRTool(BaseTool):
     name: str = "create_feature_branch_and_open_pr"
     description: str = (
-        "Creates a new branch off the latest main, stages exactly the "
-        "given file path(s) (never everything in the working tree - "
-        "other unrelated local changes are left alone), commits them "
-        "with the given message (automatically prefixed with "
+        "Creates a new branch off the current build workspace's main, "
+        "stages exactly the given file path(s) (never everything in the "
+        "working tree - other unrelated local changes are left alone), "
+        "commits them with the given message (automatically prefixed with "
         "'[software-engineer] ' so these commits are identifiable "
         "later), pushes the branch, and opens a pull request against "
         "main with the given title/body. Only call this once you've "
@@ -104,36 +81,36 @@ class CreateFeatureBranchAndOpenPRTool(BaseTool):
                 "ask a human to add it before retrying."
             )
 
-        code, out, err = _run(["git", "fetch", "origin", "main"], timeout=60)
-        if code != 0:
-            return f"git fetch origin main failed: {err or out}"
+        try:
+            workspace_dir()  # raises if called outside build_workspace()
+        except RuntimeError as e:
+            return f"Error: {e}"
 
-        code, out, err = _run(["git", "checkout", "-B", branch_name, "origin/main"])
+        # No fetch/checkout-from-origin needed here: build_workspace()
+        # already cloned a fresh copy of main for this build, so the
+        # workspace's current HEAD already is main.
+        code, out, err = run_in_workspace(["git", "checkout", "-B", branch_name])
         if code != 0:
             return f"git checkout -B {branch_name} failed: {err or out}"
 
-        code, out, err = _run(["git", "add", *file_paths])
+        code, out, err = run_in_workspace(["git", "add", *file_paths])
         if code != 0:
             return f"git add failed: {err or out}"
 
         full_message = f"[software-engineer] {commit_message}"
-        code, out, err = _run(["git", "commit", "-m", full_message])
+        code, out, err = run_in_workspace(["git", "commit", "-m", full_message])
         if code != 0:
             return f"git commit failed (maybe nothing actually changed?): {err or out}"
 
-        # Push over HTTPS via GIT_ASKPASS (see _git_askpass_env) rather
-        # than through the ambient `origin` remote - on the production
-        # server `origin` is a read-only deploy key by design (see
-        # module docstring), so this must not depend on whatever push
-        # access `origin` happens to have in a given environment. The
-        # token stays in the environment only, never in argv (a URL
-        # with the token embedded would be visible for the life of the
-        # process via `ps aux`/`/proc/<pid>/cmdline`) and never touches
-        # .git/config (no -u/--set-upstream - this checkout gets reset
-        # via `git checkout -B` on the tool's next run anyway).
+        # Push over HTTPS via GIT_ASKPASS - the token stays in the
+        # environment only, never in argv (a URL with the token
+        # embedded would be visible for the life of the process via
+        # `ps aux`/`/proc/<pid>/cmdline`) and never touches
+        # .git/config (no -u/--set-upstream - this workspace gets
+        # deleted right after this build finishes anyway).
         push_url = f"https://x-access-token@github.com/{_GITHUB_REPO}.git"
-        with _git_askpass_env(push_token) as env:
-            code, out, err = _run(
+        with git_askpass_env(push_token) as env:
+            code, out, err = run_in_workspace(
                 ["git", "push", push_url, f"{branch_name}:{branch_name}"], timeout=60, env=env
             )
         if code != 0:
@@ -141,7 +118,7 @@ class CreateFeatureBranchAndOpenPRTool(BaseTool):
 
         # gh pr create needs its own auth - GH_TOKEN overrides whatever
         # (if anything) gh is already logged in as in this environment.
-        code, out, err = _run(
+        code, out, err = run_in_workspace(
             [
                 "gh", "pr", "create",
                 "--repo", _GITHUB_REPO,
