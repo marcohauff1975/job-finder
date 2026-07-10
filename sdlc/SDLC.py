@@ -861,7 +861,17 @@ def build_feature(
         # caller never gets to show the user anything at all instead
         # of a clean "something went wrong" message.
         return None
-    return result.pydantic if result.pydantic else None
+    build_result = result.pydantic
+    if build_result is None or not build_result.pr_url:
+        # A populated FeatureBuildResult with an empty pr_url means the
+        # engineer wrote up a plan (or even a summary claiming success)
+        # without ever actually calling create_feature_branch_and_open_pr -
+        # nothing was pushed anywhere. Treating that the same as a
+        # missing result (None) is what makes the caller show "something
+        # went wrong" instead of a false "build complete" message with no
+        # PR behind it.
+        return None
+    return build_result
 
 
 def fix_deploy_failure(
