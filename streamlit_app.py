@@ -362,13 +362,31 @@ def _render_requirements_challenge_page() -> None:
             "either missing or doesn't have permission to read repo Actions variables."
         )
     else:
+        # st.toggle's own cached state (via its key) persists across
+        # reruns/page loads within a session, independent of value= -
+        # value= only seeds it on first render. If AUTO_DEPLOY_ON_MERGE
+        # changes through anything other than this exact toggle (the
+        # desktop "Toggle Demo Mode" icon, editing the GitHub variable
+        # directly), a stale cached state can silently disagree with
+        # the freshly-fetched current_deploy_mode - and the mismatch
+        # check below would then treat that staleness as if it were a
+        # fresh user click, silently pushing the stale cached value
+        # back to GitHub and reverting someone else's change. Observed
+        # live (2026-07-12): the caption and the toggle disagreed after
+        # an external change, and GitHub's real value had already been
+        # overwritten back to the toggle's stale position. Resyncing
+        # here, before the widget renders, whenever the external value
+        # has moved since we last saw it, closes that gap.
+        if st.session_state.get("_rc_deploy_mode_last_seen") != current_deploy_mode:
+            st.session_state["rc_auto_deploy_toggle"] = current_deploy_mode
+        st.session_state["_rc_deploy_mode_last_seen"] = current_deploy_mode
+
         st.caption(
             f"Current value: **{'ON' if current_deploy_mode else 'OFF'}** "
             f"(`AUTO_DEPLOY_ON_MERGE={'true' if current_deploy_mode else 'false'}` on GitHub)"
         )
         toggled_deploy_mode = st.toggle(
             "🚀 Automated deploy on merge",
-            value=current_deploy_mode,
             key="rc_auto_deploy_toggle",
             help="Same switch as the 'Toggle Demo Mode' desktop icon. Off (default): "
             "deploying to production after a merge still needs a manual 'Run workflow' "
@@ -388,7 +406,10 @@ def _render_requirements_challenge_page() -> None:
                     "permissions."
                 )
                 st.session_state["rc_auto_deploy_toggle"] = current_deploy_mode
+                st.session_state["_rc_deploy_mode_last_seen"] = current_deploy_mode
                 st.rerun()
+            else:
+                st.session_state["_rc_deploy_mode_last_seen"] = toggled_deploy_mode
 
     messages = st.session_state.get("rc_messages", [])
 
