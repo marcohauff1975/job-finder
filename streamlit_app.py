@@ -77,6 +77,7 @@ from sdlc.requirements_sessions import (
     new_session_id,
     save_session,
 )
+from sdlc_agent_backend_mode import get_agent_backend, set_agent_backend
 from sdlc_agent_steps import get_agent_activity
 from sdlc_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
@@ -563,6 +564,17 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
     current_models = load_agent_models()
     display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
 
+    # Every agent now routes through sdlc/backend.py's run_agent(), which
+    # checks this exact env var in whatever process actually runs it - so
+    # this reflects THIS process's own environment, not necessarily the
+    # AGENT_BACKEND GitHub Actions repo variable. They're deliberately
+    # separate: production Streamlit never has a `claude` CLI/subscription
+    # login available, so it always shows "API" here regardless of what
+    # the repo variable is set to for CI runs - only a local
+    # `streamlit run` with AGENT_BACKEND=subscription set beforehand
+    # actually shows "Subscription".
+    backend_label = "Subscription" if os.environ.get("AGENT_BACKEND", "api") == "subscription" else "API"
+
     rows = []
     for agent_key in agent_keys:
         recommended_id, rationale = RECOMMENDATIONS[agent_key]
@@ -570,6 +582,7 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         rows.append(
             {
                 "Agent": AGENT_DISPLAY_NAMES[agent_key],
+                "Backend": backend_label,
                 "Current model": current_label,
                 "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
                 "New model": current_label,
@@ -585,7 +598,7 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
                 options=list(MODEL_DISPLAY_NAMES.values()), required=True
             ),
         },
-        disabled=["Agent", "Current model", "Recommended", "Why"],
+        disabled=["Agent", "Backend", "Current model", "Recommended", "Why"],
         use_container_width=True,
         hide_index=True,
         key=f"{widget_key_prefix}_editor",
@@ -834,6 +847,53 @@ if st.query_params.get("admin") is not None:
                 "Changes apply immediately to this running app and are "
                 "saved so they survive the next restart."
             )
+            st.caption(
+                "**Backend** below is API (metered Anthropic API billing) "
+                "or Subscription (a local `claude -p` call billed against "
+                "a Claude subscription instead - see sdlc/backend.py). It "
+                "reflects THIS Streamlit process's own AGENT_BACKEND "
+                "environment variable, not the toggle right below - "
+                "production Streamlit never has a subscription login "
+                "available, so it always shows API here no matter what "
+                "that toggle is set to."
+            )
+
+            current_agent_backend = get_agent_backend()
+            if current_agent_backend is None:
+                st.caption(
+                    "⚠️ Can't read the current CI agent backend - "
+                    "GITHUB_VARIABLES_TOKEN is either missing or doesn't "
+                    "have permission to read repo Actions variables."
+                )
+            else:
+                is_subscription = current_agent_backend == "subscription"
+                st.caption(
+                    f"GitHub Actions CI is currently on: "
+                    f"**{'Subscription' if is_subscription else 'API'}** "
+                    f"(`AGENT_BACKEND={current_agent_backend}` on GitHub)"
+                )
+                toggled_to_subscription = st.toggle(
+                    "🧑‍💻 Run CI agents on Marco's Claude subscription",
+                    value=is_subscription,
+                    key="agent_backend_toggle",
+                    help="Off (default): every SDLC agent in GitHub Actions "
+                    "runs against the metered Anthropic API, as normal. On: "
+                    "those same agents run instead as local `claude -p` "
+                    "calls on a self-hosted runner (Marco's own laptop, "
+                    "logged in via `claude login`) - only takes effect for "
+                    "his own pushes/PRs, never a fork's, and only while "
+                    "that runner is online. Meant for active testing "
+                    "sessions, not left on permanently.",
+                )
+                if toggled_to_subscription != is_subscription:
+                    new_value = "subscription" if toggled_to_subscription else "api"
+                    if not set_agent_backend(new_value):
+                        st.error(
+                            "Couldn't update the CI agent backend - check "
+                            "GITHUB_VARIABLES_TOKEN's permissions."
+                        )
+                        st.session_state["agent_backend_toggle"] = is_subscription
+                        st.rerun()
 
             app_agent_keys = [
                 key for key in AGENT_DISPLAY_NAMES if key not in TECH_EXCELLENCE_AGENT_KEYS
