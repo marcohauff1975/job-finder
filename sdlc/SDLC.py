@@ -40,6 +40,7 @@ from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
+from sdlc.backend import run_agent
 from sdlc.model_registry import load_agent_models
 
 # Makes `sdlc.tools...` importable whether this file is run directly
@@ -710,16 +711,24 @@ AGENTS_BY_KEY = {
 
 def review_code(diff: str) -> CodeReviewResult | None:
     """Run the code review crew over a diff and return the structured
-    result, or None if it failed."""
-    try:
-        result = code_review_crew.kickoff(inputs={"diff": diff})
-    except Exception:
-        # Same defensive catch as fix_review_findings/arbiter_review below -
-        # an empty/None LLM response (a known intermittent CrewAI/provider
-        # flake, not a verdict on the diff) must not crash the whole review
-        # run; the caller (sdlc/code_review_runner.py) retries on None.
-        return None
-    return result.pydantic if result.pydantic else None
+    result, or None if it failed. Routes through run_agent() (see
+    sdlc/backend.py) so this also works under AGENT_BACKEND=subscription -
+    a None here still just means "no result" either way (a known
+    intermittent CrewAI/provider flake on the API path, not a verdict on
+    the diff); the caller (sdlc/code_review_runner.py) retries on None."""
+    inputs = {"diff": diff}
+    return run_agent(
+        agent_key="code_reviewer",
+        task_key="code_review_task",
+        inputs=inputs,
+        output_model=CodeReviewResult,
+        kickoff=lambda: code_review_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["code_reviewer"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Bash(curl:*)",
+    )
 
 
 def _format_findings_for_agent(findings: list[CodeReviewFinding]) -> str:
@@ -737,16 +746,18 @@ def fix_review_findings(findings: list[CodeReviewFinding]) -> PRFixResult | None
     code_review_runner.py) owns git end to end and pushes once, after
     every attempt is done, not once per attempt."""
     inputs = {"findings": _format_findings_for_agent(findings)}
-    try:
-        result = pr_fix_crew.kickoff(inputs=inputs)
-    except Exception:
-        # Same defensive catch as build_feature() below, for the same
-        # reason: a final answer that mixes prose with a JSON block can
-        # make CrewAI's partial-JSON handling raise a bare pydantic
-        # ValidationError instead of falling back gracefully, and that
-        # must not escape this function uncaught.
-        return None
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="pr_fix_agent",
+        task_key="pr_fix_task",
+        inputs=inputs,
+        output_model=PRFixResult,
+        kickoff=lambda: pr_fix_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["pr_fix_agent"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Read,Edit",
+    )
 
 
 def arbiter_review(diff: str, findings: list[CodeReviewFinding]) -> ArbiterVerdict | None:
@@ -755,11 +766,18 @@ def arbiter_review(diff: str, findings: list[CodeReviewFinding]) -> ArbiterVerdi
     without converging - and return its verdict, or None if the crew
     failed to produce a result."""
     inputs = {"diff": diff, "findings": _format_findings_for_agent(findings)}
-    try:
-        result = pr_arbiter_crew.kickoff(inputs=inputs)
-    except Exception:
-        return None
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="pr_arbiter",
+        task_key="pr_arbiter_task",
+        inputs=inputs,
+        output_model=ArbiterVerdict,
+        kickoff=lambda: pr_arbiter_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["pr_arbiter"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Read",
+    )
 
 
 def test_locally(change_summary: str, flow_to_test: str) -> LocalTestResult | None:

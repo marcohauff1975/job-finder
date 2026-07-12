@@ -32,9 +32,39 @@ env:
   PROD_URL: https://yourmagicaljobfinder.online
 
 jobs:
-  code_review:
+  # Decides which backend code_review actually uses, in exactly one place,
+  # so the runs-on choice below and the AGENT_BACKEND passed into the
+  # script can never disagree. AGENT_BACKEND (a repo variable, "api" by
+  # default) only ever resolves to "subscription" for a PR whose head repo
+  # is this repo - never a fork's. That's not a cost optimization, it's a
+  # security boundary: "subscription" routes the job onto a self-hosted
+  # runner (Marco's own laptop, authenticated via his Claude subscription -
+  # see sdlc/backend.py), and a self-hosted runner executing an external
+  # fork's checked-out code is GitHub's own documented anti-pattern for
+  # public repos. A fork PR silently falls back to "api" (GitHub-hosted,
+  # as always) regardless of what the toggle says.
+  resolve_backend:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.resolve.outputs.backend }}
+    steps:
+      - id: resolve
+        env:
+          REQUESTED_BACKEND: ${{ vars.AGENT_BACKEND }}
+          IS_SAME_REPO_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          if [ "$REQUESTED_BACKEND" = "subscription" ] && [ "$IS_SAME_REPO_PR" = "true" ]; then
+            echo "backend=subscription" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=api" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved AGENT_BACKEND=$REQUESTED_BACKEND, same-repo PR=$IS_SAME_REPO_PR"
+
+  code_review:
+    needs: resolve_backend
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ needs.resolve_backend.outputs.backend == 'subscription' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       # ref + token here matter beyond "which commit to check out": if
       # pr_fix_agent applies a fix, code_review_runner.py commits and
@@ -76,6 +106,7 @@ jobs:
 
       - name: Run code_reviewer (and pr_fix_agent / pr_arbiter if needed)
         env:
+          AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           REVIEWER_BOT_TOKEN: ${{ secrets.REVIEWER_BOT_TOKEN }}
           DIFF_FILE: /tmp/pr.diff
