@@ -362,6 +362,10 @@ def _render_requirements_challenge_page() -> None:
             "either missing or doesn't have permission to read repo Actions variables."
         )
     else:
+        st.caption(
+            f"Current value: **{'ON' if current_deploy_mode else 'OFF'}** "
+            f"(`AUTO_DEPLOY_ON_MERGE={'true' if current_deploy_mode else 'false'}` on GitHub)"
+        )
         toggled_deploy_mode = st.toggle(
             "🚀 Automated deploy on merge",
             value=current_deploy_mode,
