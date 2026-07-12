@@ -19,6 +19,28 @@ class FakeVerdict(BaseModel):
     reasoning: str
 
 
+class TestResolveClaudeBinary:
+    def test_prefers_a_plain_path_lookup_when_it_resolves(self, monkeypatch):
+        monkeypatch.setattr(backend.shutil, "which", lambda name: "/opt/homebrew/bin/claude")
+
+        assert backend._resolve_claude_binary() == "/opt/homebrew/bin/claude"
+
+    def test_falls_back_to_the_documented_install_location(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(backend.shutil, "which", lambda name: None)
+        monkeypatch.setattr(backend.Path, "home", lambda: tmp_path)
+        fake_claude = tmp_path / ".local" / "bin" / "claude"
+        fake_claude.parent.mkdir(parents=True)
+        fake_claude.write_text("")
+
+        assert backend._resolve_claude_binary() == str(fake_claude)
+
+    def test_falls_back_to_the_bare_name_when_nothing_is_found(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(backend.shutil, "which", lambda name: None)
+        monkeypatch.setattr(backend.Path, "home", lambda: tmp_path)
+
+        assert backend._resolve_claude_binary() == "claude"
+
+
 class TestBashToolInstructions:
     def test_lists_each_tool_with_its_real_description(self):
         text = backend.bash_tool_instructions(["check_pypi_package_version"])
@@ -93,6 +115,11 @@ class TestRunViaSubscription:
         assert result == FakeVerdict(safe_to_merge=True, reasoning="ok")
 
     def test_passes_selected_model_and_tool_scope_to_the_cli(self, monkeypatch):
+        # _resolve_claude_binary() is exercised on its own in
+        # TestResolveClaudeBinary - fixed here so this test doesn't
+        # depend on whatever is or isn't actually installed on whatever
+        # machine runs the suite.
+        monkeypatch.setattr(backend, "_resolve_claude_binary", lambda: "claude")
         captured = {}
 
         def fake_run(cmd, **kwargs):
@@ -138,6 +165,20 @@ class TestRunViaSubscription:
             raise backend.subprocess.TimeoutExpired(cmd="claude", timeout=600)
 
         monkeypatch.setattr(backend.subprocess, "run", raise_timeout)
+
+        assert self._call() is None
+
+    def test_returns_none_when_the_claude_binary_is_not_on_path(self, monkeypatch):
+        """Regression test for a real observed failure: on a freshly set
+        up self-hosted runner, `claude` isn't on the restricted PATH
+        GitHub Actions steps run with, and subprocess.run raised an
+        unhandled FileNotFoundError that crashed the whole review run
+        instead of degrading to None like every other failure mode."""
+
+        def raise_not_found(*a, **k):
+            raise FileNotFoundError(2, "No such file or directory", "claude")
+
+        monkeypatch.setattr(backend.subprocess, "run", raise_not_found)
 
         assert self._call() is None
 

@@ -41,9 +41,9 @@ class TestReadinessPanel:
         assert len(calls) == 7
         assert [c["output_model"] for c in calls[:6]] == [SDLC.PersonaReviewResult] * 6
         assert calls[6]["output_model"] is SDLC.ReadinessReviewResult
-        assert [c["model"] for c in calls] == [SDLC._agent_models[k] for k, _, _ in SDLC._READINESS_PERSONAS] + [
-            SDLC._agent_models["cto"]
-        ]
+        assert [c["model"] for c in calls] == [
+            SDLC._agent_models[k]["subscription"] for k, _, _ in SDLC._READINESS_PERSONAS
+        ] + [SDLC._agent_models["cto"]["subscription"]]
 
     def test_feeds_all_six_persona_results_into_the_synthesis_context(self, monkeypatch):
         synthesis_context = {}

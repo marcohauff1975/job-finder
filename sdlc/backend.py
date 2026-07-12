@@ -34,12 +34,33 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+from pathlib import Path
 from typing import Callable, TypeVar
 
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _resolve_claude_binary() -> str:
+    """Native Claude Code installs (curl -fsSL https://claude.ai/
+    install.sh | bash) put the `claude` binary at ~/.local/bin/claude,
+    but that directory isn't added to PATH system-wide - the installer
+    itself only suggests appending it to ~/.zshrc. That's fine for an
+    interactive terminal, but GitHub Actions steps run via a non-login,
+    non-interactive shell that never sources .zshrc/.zprofile at all, so
+    a self-hosted runner won't find `claude` on PATH even right after a
+    successful install and login (observed directly - see PR #38).
+    Falls back to that documented standard location if a plain PATH
+    lookup doesn't find it, so this doesn't depend on every machine this
+    ever runs on having its shell rc files configured just right."""
+    found = shutil.which("claude")
+    if found:
+        return found
+    fallback = Path.home() / ".local" / "bin" / "claude"
+    return str(fallback) if fallback.exists() else "claude"
 
 SUBSCRIPTION_TIMEOUT_SECONDS = 600
 
@@ -120,7 +141,7 @@ def run_via_subscription(
         f"JSON schema - no prose before or after it, no markdown fence:\n{schema}"
     )
 
-    cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", _clean_model_id(model)]
+    cmd = [_resolve_claude_binary(), "-p", prompt, "--output-format", "json", "--model", _clean_model_id(model)]
     if allowed_tools:
         cmd += ["--allowedTools", allowed_tools]
     else:
@@ -132,6 +153,15 @@ def run_via_subscription(
         )
     except subprocess.TimeoutExpired:
         print(f"::error::claude -p timed out after {SUBSCRIPTION_TIMEOUT_SECONDS}s")
+        return None
+    except OSError as exc:
+        # Covers FileNotFoundError (the `claude` binary isn't on this
+        # process's PATH - a real, observed failure mode on a freshly
+        # set up self-hosted runner) and PermissionError alike. An
+        # environment problem here is no different from any other
+        # "couldn't get a result" case - it must degrade to None, not
+        # crash the whole review run with an unhandled traceback.
+        print(f"::error::couldn't run claude -p: {exc}")
         return None
 
     if proc.returncode != 0:

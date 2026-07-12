@@ -92,13 +92,30 @@ jobs:
       - name: Fetch main (for re-diffing after each fix attempt)
         run: git fetch origin main
 
+      # actions/setup-python assumes a GitHub-hosted runner's own
+      # "runner" user/home-directory layout for its tool cache - on a
+      # self-hosted runner (subscription mode) that's someone else's
+      # laptop with its own user account, so this step fails outright
+      # with a permission error trying to create /Users/runner. Skipped
+      # there: the self-hosted runner already has a working Python (this
+      # whole repo's local dev workflow depends on it) - only the
+      # GitHub-hosted/api path needs a guaranteed, freshly-provisioned one.
       - name: Set up Python
+        if: needs.resolve_backend.outputs.backend != 'subscription'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies (for the CrewAI agent)
-        run: pip install -r requirements.txt
+        # python3 -m pip, not bare `pip` - on the self-hosted runner
+        # (subscription mode, no actions/setup-python step above to put
+        # `pip` on PATH), GitHub Actions steps run via a non-login,
+        # non-interactive shell that doesn't source .zshrc/.zprofile, so
+        # only whatever was already on PATH when the runner process
+        # itself started is available. python3 ships with macOS itself
+        # (Xcode Command Line Tools) and is far more likely to already be
+        # on that minimal PATH than a bare `pip` alias.
+        run: python3 -m pip install -r requirements.txt
 
       - name: Get the PR diff
         env:
@@ -113,7 +130,7 @@ jobs:
           DIFF_FILE: /tmp/pr.diff
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: python -m sdlc.code_review_runner
+        run: python3 -m sdlc.code_review_runner
 
   deploy:
     needs: resolve_backend
@@ -128,13 +145,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Same self-hosted-runner exception as code_review's own Set up
+      # Python step above - see that step's comment.
       - name: Set up Python
+        if: needs.resolve_backend.outputs.backend != 'subscription'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies (for the CrewAI agents)
-        run: pip install -r requirements.txt
+        # Same self-hosted-runner PATH reasoning as code_review's own
+        # install step above - see that step's comment.
+        run: python3 -m pip install -r requirements.txt
 
       # prod_tester's check_production_health drives a real headless
       # browser (see sdlc/tools/prod_ops.py) - pip install alone only
@@ -235,7 +257,7 @@ jobs:
           NEW_COMMIT: ${{ steps.diff.outputs.new_commit }}
           CHANGE_SUMMARY: ${{ steps.diff.outputs.change_summary }}
           FLOW_TO_TEST: "The homepage loads and login/registration renders."
-        run: python -m sdlc.ai_prod_flow_runner
+        run: python3 -m sdlc.ai_prod_flow_runner
 
       - name: Clean up key material
         if: always()

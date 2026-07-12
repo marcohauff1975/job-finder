@@ -556,11 +556,15 @@ def _render_requirements_challenge_page() -> None:
 
 
 def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> None:
-    """Renders one editable Agent/Current/Recommended/Why/New-model table
+    """Renders one editable Agent/API model/Subscription model/Why table
     for the given agent_keys (see AGENT_DISPLAY_NAMES in
     sdlc/model_registry.py) on the admin "AI Models" tab, with its own
-    save button. widget_key_prefix keeps this group's Streamlit widget
-    keys distinct from any other group rendered on the same page."""
+    save button. Each agent has two independent model assignments - one
+    per backend (see RECOMMENDATIONS' own module comment for why the two
+    recommendations differ: cost is a real constraint on the API, not on
+    a flat-rate subscription). widget_key_prefix keeps this group's
+    Streamlit widget keys distinct from any other group rendered on the
+    same page."""
     current_models = load_agent_models()
     display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
 
@@ -577,16 +581,19 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
 
     rows = []
     for agent_key in agent_keys:
-        recommended_id, rationale = RECOMMENDATIONS[agent_key]
-        current_label = MODEL_DISPLAY_NAMES[current_models[agent_key]]
+        api_recommended_id, api_rationale = RECOMMENDATIONS[agent_key]["api"]
+        sub_recommended_id, sub_rationale = RECOMMENDATIONS[agent_key]["subscription"]
+        api_label = MODEL_DISPLAY_NAMES[current_models[agent_key]["api"]]
+        sub_label = MODEL_DISPLAY_NAMES[current_models[agent_key]["subscription"]]
         rows.append(
             {
                 "Agent": AGENT_DISPLAY_NAMES[agent_key],
-                "Backend": backend_label,
-                "Current model": current_label,
-                "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
-                "New model": current_label,
-                "Why": rationale,
+                "Running as": backend_label,
+                "API model": api_label,
+                "Recommended (API)": MODEL_DISPLAY_NAMES[api_recommended_id],
+                "Subscription model": sub_label,
+                "Recommended (Subscription)": MODEL_DISPLAY_NAMES[sub_recommended_id],
+                "Why": f"API: {api_rationale}\n\nSubscription: {sub_rationale}",
             }
         )
 
@@ -594,11 +601,14 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         rows,
         column_config={
             "Why": st.column_config.TextColumn(width="large"),
-            "New model": st.column_config.SelectboxColumn(
+            "API model": st.column_config.SelectboxColumn(
+                options=list(MODEL_DISPLAY_NAMES.values()), required=True
+            ),
+            "Subscription model": st.column_config.SelectboxColumn(
                 options=list(MODEL_DISPLAY_NAMES.values()), required=True
             ),
         },
-        disabled=["Agent", "Backend", "Current model", "Recommended", "Why"],
+        disabled=["Agent", "Running as", "Recommended (API)", "Recommended (Subscription)", "Why"],
         use_container_width=True,
         hide_index=True,
         key=f"{widget_key_prefix}_editor",
@@ -607,12 +617,16 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
     if st.button("Save model changes", key=f"{widget_key_prefix}_save"):
         changed = 0
         for agent_key, edited in zip(agent_keys, edited_rows):
-            new_model_id = display_to_model_id[edited["New model"]]
-            if new_model_id != current_models[agent_key]:
-                set_agent_model(agent_key, new_model_id)
+            new_api_id = display_to_model_id[edited["API model"]]
+            if new_api_id != current_models[agent_key]["api"]:
+                set_agent_model(agent_key, new_api_id, "api")
+                changed += 1
+            new_sub_id = display_to_model_id[edited["Subscription model"]]
+            if new_sub_id != current_models[agent_key]["subscription"]:
+                set_agent_model(agent_key, new_sub_id, "subscription")
                 changed += 1
         if changed:
-            st.success(f"Updated {changed} agent(s) - takes effect immediately, no restart needed.")
+            st.success(f"Updated {changed} model assignment(s) - takes effect immediately, no restart needed.")
             st.rerun()
         else:
             st.info("No changes to save.")
@@ -840,22 +854,22 @@ if st.query_params.get("admin") is not None:
 
         with tab_models:
             st.caption(
-                "Every SDLC agent's currently assigned Claude model, a "
-                "recommendation for best performance based on that "
-                "agent's actual stakes and judgment load (see "
-                "sdlc/model_registry.py), and a control to change it. "
-                "Changes apply immediately to this running app and are "
-                "saved so they survive the next restart."
+                "Every SDLC agent has two independent model assignments "
+                "below - one for the API, one for a Claude subscription - "
+                "each with its own recommendation (see "
+                "sdlc/model_registry.py): cost per call is a real "
+                "constraint on the API, but not on a flat-rate "
+                "subscription, so the two don't always agree. Changes "
+                "apply immediately and are saved so they survive the next "
+                "restart."
             )
             st.caption(
-                "**Backend** below is API (metered Anthropic API billing) "
-                "or Subscription (a local `claude -p` call billed against "
-                "a Claude subscription instead - see sdlc/backend.py). It "
-                "reflects THIS Streamlit process's own AGENT_BACKEND "
-                "environment variable, not the toggle right below - "
-                "production Streamlit never has a subscription login "
-                "available, so it always shows API here no matter what "
-                "that toggle is set to."
+                "**Running as** is which one is actually in effect right "
+                "now - it reflects THIS Streamlit process's own "
+                "AGENT_BACKEND environment variable, not the toggle right "
+                "below. Production Streamlit never has a subscription "
+                "login available, so it always shows API here no matter "
+                "what that toggle is set to."
             )
 
             current_agent_backend = get_agent_backend()

@@ -247,7 +247,7 @@ _agent_models = load_agent_models()
 
 
 def _llm(agent_key: str) -> LLM:
-    return LLM(model=_agent_models[agent_key])
+    return LLM(model=_agent_models[agent_key]["api"])
 
 
 # --- Code Reviewer: agent + task + crew --------------------------------
@@ -725,7 +725,7 @@ def review_code(diff: str) -> CodeReviewResult | None:
         kickoff=lambda: code_review_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["code_reviewer"],
+        model=_agent_models["code_reviewer"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Bash(python -m sdlc.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(
@@ -757,7 +757,7 @@ def fix_review_findings(findings: list[CodeReviewFinding]) -> PRFixResult | None
         kickoff=lambda: pr_fix_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["pr_fix_agent"],
+        model=_agent_models["pr_fix_agent"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Read,Edit",
     )
@@ -777,7 +777,7 @@ def arbiter_review(diff: str, findings: list[CodeReviewFinding]) -> ArbiterVerdi
         kickoff=lambda: pr_arbiter_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["pr_arbiter"],
+        model=_agent_models["pr_arbiter"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Read",
     )
@@ -795,7 +795,7 @@ def test_locally(change_summary: str, flow_to_test: str) -> LocalTestResult | No
         kickoff=lambda: local_test_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["local_tester"],
+        model=_agent_models["local_tester"]["subscription"],
         cwd=str(REPO_ROOT),
     )
 
@@ -819,7 +819,7 @@ def test_performance(
         kickoff=lambda: performance_test_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["local_tester"],
+        model=_agent_models["local_tester"]["subscription"],
         cwd=str(REPO_ROOT),
     )
 
@@ -843,7 +843,7 @@ def review_ux(
         kickoff=lambda: ux_review_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["ux_reviewer"],
+        model=_agent_models["ux_reviewer"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Bash(python -m sdlc.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(["inspect_job_finder_page"]),
@@ -881,7 +881,7 @@ def test_production(
         kickoff=lambda: prod_test_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["prod_tester"],
+        model=_agent_models["prod_tester"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Bash(python -m sdlc.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(["check_production_health"]),
@@ -924,7 +924,7 @@ def rollback(
         kickoff=lambda: rollback_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["rollback_agent"],
+        model=_agent_models["rollback_agent"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Bash(python -m sdlc.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(["rollback_production"]),
@@ -1025,7 +1025,7 @@ def _review_project_readiness_via_subscription(inputs: dict[str, str]) -> Readin
             task_description=task_cfg["description"].format(**inputs),
             expected_output=task_cfg["expected_output"],
             output_model=PersonaReviewResult,
-            model=_agent_models[agent_key],
+            model=_agent_models[agent_key]["subscription"],
             cwd=str(REPO_ROOT),
             allowed_tools="Bash(python -m sdlc.tool_cli *)",
             extra_prompt_context=bash_tool_instructions(tool_names),
@@ -1048,7 +1048,7 @@ def _review_project_readiness_via_subscription(inputs: dict[str, str]) -> Readin
         task_description=synthesis_cfg["description"].format(**inputs),
         expected_output=synthesis_cfg["expected_output"],
         output_model=ReadinessReviewResult,
-        model=_agent_models["cto"],
+        model=_agent_models["cto"]["subscription"],
         cwd=str(REPO_ROOT),
         extra_prompt_context=(
             "All six personas' findings (including your own earlier review, "
@@ -1139,7 +1139,7 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
                 task_description=task_cfg["description"].format(**inputs),
                 expected_output=task_cfg["expected_output"],
                 output_model=FeatureBuildResult,
-                model=_agent_models["software_engineer"],
+                model=_agent_models["software_engineer"]["subscription"],
                 cwd=str(workspace_path),
                 allowed_tools="Bash(python -m sdlc.tool_cli *)",
                 extra_prompt_context=bash_tool_instructions(
@@ -1256,7 +1256,7 @@ def fix_deploy_failure(
         kickoff=lambda: devops_fix_crew.kickoff(inputs=inputs),
         agents_config=agents_config,
         tasks_config=tasks_config,
-        model=_agent_models["devops_agent"],
+        model=_agent_models["devops_agent"]["subscription"],
         cwd=str(REPO_ROOT),
         allowed_tools="Read,Edit,Bash(python -m sdlc.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(
@@ -1288,7 +1288,7 @@ def challenge_requirement(
             task_description=pm_task_cfg["description"].format(**inputs),
             expected_output=pm_task_cfg["expected_output"],
             output_model=FeatureRequirementsResult,
-            model=_agent_models["product_manager"],
+            model=_agent_models["product_manager"]["subscription"],
             cwd=str(REPO_ROOT),
         )
         if pm_result is None:
@@ -1303,7 +1303,7 @@ def challenge_requirement(
             task_description=architect_task_cfg["description"].format(**inputs),
             expected_output=architect_task_cfg["expected_output"],
             output_model=ArchitectureDirectionResult,
-            model=_agent_models["software_architect"],
+            model=_agent_models["software_architect"]["subscription"],
             cwd=str(REPO_ROOT),
             extra_prompt_context=(
                 "The Product Manager's requirements (given as context, per "
