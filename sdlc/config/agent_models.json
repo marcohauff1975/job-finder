@@ -1,19 +1,70 @@
 {
-  "code_reviewer": "anthropic/claude-sonnet-5",
-  "local_tester": "anthropic/claude-haiku-4-5-20251001",
-  "ux_reviewer": "anthropic/claude-haiku-4-5-20251001",
-  "prod_tester": "anthropic/claude-haiku-4-5-20251001",
-  "rollback_agent": "anthropic/claude-haiku-4-5-20251001",
-  "devops_agent": "anthropic/claude-sonnet-5",
-  "pr_fix_agent": "anthropic/claude-sonnet-5",
-  "pr_arbiter": "anthropic/claude-opus-4-8",
-  "cto": "anthropic/claude-sonnet-5",
-  "aws_lead_engineer": "anthropic/claude-sonnet-5",
-  "python_lead_engineer": "anthropic/claude-sonnet-5",
-  "data_engineer": "anthropic/claude-sonnet-5",
-  "ai_engineer": "anthropic/claude-sonnet-5",
-  "security_engineer": "anthropic/claude-sonnet-5",
-  "product_manager": "anthropic/claude-haiku-4-5-20251001",
-  "software_architect": "anthropic/claude-haiku-4-5-20251001",
-  "software_engineer": "anthropic/claude-haiku-4-5-20251001"
+  "code_reviewer": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "local_tester": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "ux_reviewer": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "prod_tester": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "rollback_agent": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "devops_agent": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "pr_fix_agent": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "pr_arbiter": {
+    "api": "anthropic/claude-opus-4-8",
+    "subscription": "anthropic/claude-opus-4-8"
+  },
+  "cto": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "aws_lead_engineer": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "python_lead_engineer": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "data_engineer": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "ai_engineer": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "security_engineer": {
+    "api": "anthropic/claude-sonnet-5",
+    "subscription": "anthropic/claude-sonnet-5"
+  },
+  "product_manager": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "software_architect": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "software_engineer": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
+  }
 }
