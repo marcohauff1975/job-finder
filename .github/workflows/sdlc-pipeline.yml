@@ -107,7 +107,15 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies (for the CrewAI agent)
-        run: pip install -r requirements.txt
+        # python3 -m pip, not bare `pip` - on the self-hosted runner
+        # (subscription mode, no actions/setup-python step above to put
+        # `pip` on PATH), GitHub Actions steps run via a non-login,
+        # non-interactive shell that doesn't source .zshrc/.zprofile, so
+        # only whatever was already on PATH when the runner process
+        # itself started is available. python3 ships with macOS itself
+        # (Xcode Command Line Tools) and is far more likely to already be
+        # on that minimal PATH than a bare `pip` alias.
+        run: python3 -m pip install -r requirements.txt
 
       - name: Get the PR diff
         env:
@@ -146,7 +154,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies (for the CrewAI agents)
-        run: pip install -r requirements.txt
+        # Same self-hosted-runner PATH reasoning as code_review's own
+        # install step above - see that step's comment.
+        run: python3 -m pip install -r requirements.txt
 
       # prod_tester's check_production_health drives a real headless
       # browser (see sdlc/tools/prod_ops.py) - pip install alone only

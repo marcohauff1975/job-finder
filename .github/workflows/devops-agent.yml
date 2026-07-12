@@ -80,7 +80,9 @@ jobs:
 
       - name: Install dependencies
         if: steps.guard.outputs.already_tried == 'false'
-        run: pip install -r requirements.txt
+        # Same self-hosted-runner PATH reasoning as sdlc-pipeline.yml's
+        # own install steps - see that file's code_review job comment.
+        run: python3 -m pip install -r requirements.txt
 
       - name: Set up git identity for the auto-fix commit
         if: steps.guard.outputs.already_tried == 'false'
