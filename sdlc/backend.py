@@ -133,6 +133,15 @@ def run_via_subscription(
     except subprocess.TimeoutExpired:
         print(f"::error::claude -p timed out after {SUBSCRIPTION_TIMEOUT_SECONDS}s")
         return None
+    except OSError as exc:
+        # Covers FileNotFoundError (the `claude` binary isn't on this
+        # process's PATH - a real, observed failure mode on a freshly
+        # set up self-hosted runner) and PermissionError alike. An
+        # environment problem here is no different from any other
+        # "couldn't get a result" case - it must degrade to None, not
+        # crash the whole review run with an unhandled traceback.
+        print(f"::error::couldn't run claude -p: {exc}")
+        return None
 
     if proc.returncode != 0:
         print(f"::error::claude -p failed (exit {proc.returncode}): {proc.stderr.strip()[:500]}")

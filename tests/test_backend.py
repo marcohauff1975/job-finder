@@ -141,6 +141,20 @@ class TestRunViaSubscription:
 
         assert self._call() is None
 
+    def test_returns_none_when_the_claude_binary_is_not_on_path(self, monkeypatch):
+        """Regression test for a real observed failure: on a freshly set
+        up self-hosted runner, `claude` isn't on the restricted PATH
+        GitHub Actions steps run with, and subprocess.run raised an
+        unhandled FileNotFoundError that crashed the whole review run
+        instead of degrading to None like every other failure mode."""
+
+        def raise_not_found(*a, **k):
+            raise FileNotFoundError(2, "No such file or directory", "claude")
+
+        monkeypatch.setattr(backend.subprocess, "run", raise_not_found)
+
+        assert self._call() is None
+
     def test_returns_none_on_non_json_envelope(self, monkeypatch):
         monkeypatch.setattr(backend.subprocess, "run", lambda *a, **k: _ok("not json at all"))
 
