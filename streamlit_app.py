@@ -1026,6 +1026,47 @@ st.markdown(
     textarea[data-testid="stChatInputTextArea"] {
         overflow-x: hidden;
     }
+
+    /* Ensure placeholder text is fully visible in text input fields.
+       Streamlit's default text input can truncate placeholder text if
+       the field height is too small. Set minimum height to ensure at
+       least 2-3 lines are visible, and ensure placeholder text wraps
+       properly without horizontal scroll on mobile. */
+    input[data-testid="stTextInput"] {
+        min-height: 44px !important;
+        padding: 8px 12px !important;
+        line-height: 1.5 !important;
+        font-size: 16px !important;
+    }
+
+    /* Ensure placeholder and helper text in text areas is fully visible
+       and wrapped properly, especially on mobile viewports. */
+    textarea[data-testid="stTextArea"] {
+        min-height: 80px !important;
+        padding: 8px 12px !important;
+        line-height: 1.5 !important;
+        font-size: 16px !important;
+    }
+
+    /* On mobile viewports (< 768px), ensure text inputs don't cause
+       horizontal scrolling for placeholder text. */
+    @media (max-width: 768px) {
+        input[data-testid="stTextInput"],
+        textarea[data-testid="stTextArea"] {
+            max-width: 100% !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            white-space: normal !important;
+        }
+    }
+
+    /* Ensure placeholder text color is sufficient contrast for
+       readability without requiring focus. */
+    input[data-testid="stTextInput"]::placeholder,
+    textarea[data-testid="stTextArea"]::placeholder {
+        color: #64748b !important;
+        opacity: 1 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1074,12 +1115,17 @@ with main_col:
     if not resume_path.exists():
         st.subheader("Upload your resume")
         st.write("Upload a .docx or .pdf resume - this is what will be tailored for each job you search.")
-        uploaded = st.file_uploader("Resume (.docx or .pdf)", type=["docx", "pdf"])
-        if uploaded is not None:
-            save_resume_upload(uploaded.name, uploaded.getvalue(), resume_path)
-            resume_name_path.write_text(uploaded.name)
-            st.success("Resume uploaded.")
-            st.rerun()
+        with st.container():
+            uploaded = st.file_uploader(
+                "Resume (.docx or .pdf)",
+                type=["docx", "pdf"],
+                help="Select your resume file (PDF or Word document). This will be used as the base for creating tailored resumes for each job application."
+            )
+            if uploaded is not None:
+                save_resume_upload(uploaded.name, uploaded.getvalue(), resume_path)
+                resume_name_path.write_text(uploaded.name)
+                st.success("Resume uploaded.")
+                st.rerun()
         st.stop()
 
     resume_display_name = (
@@ -1088,7 +1134,10 @@ with main_col:
 
     with st.expander(f"Resume on file: {resume_display_name} (click to replace)"):
         replacement = st.file_uploader(
-            "Upload a new resume (.docx or .pdf)", type=["docx", "pdf"], key="replace_resume"
+            "Upload a new resume (.docx or .pdf)",
+            type=["docx", "pdf"],
+            key="replace_resume",
+            help="Select a new resume to replace your current one. All previously tailored resumes will remain accessible in the history below."
         )
         if replacement is not None:
             save_resume_upload(replacement.name, replacement.getvalue(), resume_path)
@@ -1193,9 +1242,9 @@ with main_col:
 
         st.markdown("### Search for jobs")
         last_search = _load_last_search(user_dir)
-        role = st.text_input("Role", value=last_search["role"], placeholder="e.g. CTO")
+        role = st.text_input("Role", value=last_search["role"], placeholder="e.g. CTO", help="Enter the job title you're searching for")
         location = st.text_input(
-            "Location", value=last_search["location"], placeholder="e.g. Amsterdam, Netherlands"
+            "Location", value=last_search["location"], placeholder="e.g. Amsterdam, Netherlands", help="Enter the location for your job search"
         )
         remote = st.checkbox("Open to fully remote roles", value=last_search["remote"])
 
@@ -1230,7 +1279,7 @@ with main_col:
         tailored_resumes = load_tailored_resumes(user_dir)
         with st.expander(f"Tailored resumes ({len(tailored_resumes)})"):
             if not tailored_resumes:
-                st.info("You haven't tailored a resume for a specific job yet.")
+                st.write("You haven't tailored a resume for a specific job yet. After you search for jobs and select one to research, a tailored resume will appear here for download.")
             else:
                 resumes_dir = user_dir / "tailored_resumes"
                 for entry in tailored_resumes:
@@ -1394,7 +1443,7 @@ with main_col:
                 st.markdown("---")
 
         elif "postings" in st.session_state:
-            st.info("No postings found for this search.")
+            st.write("No postings found for this search. Try adjusting your search criteria, including enabling remote roles if you haven't already.")
 
         st.markdown(
             f'<p style="color:#64748b; font-size:0.8rem; text-align:center; margin-top:2rem;">'
