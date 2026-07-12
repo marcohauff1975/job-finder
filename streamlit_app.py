@@ -36,7 +36,6 @@ from auth import AuthManager, delete_user, set_user_password
 from reporting import (
     VALID_TIERS,
     delete_user_data,
-    get_estimated_anthropic_cost,
     get_report,
     get_serper_balance,
     get_user_tier,
@@ -653,9 +652,6 @@ if st.query_params.get("admin") is not None:
                 "Serper credits remaining",
                 serper_balance if serper_balance is not None else "unavailable",
             )
-
-</antml-parameter>
-
 
             st.markdown("#### Per user")
             st.caption(
