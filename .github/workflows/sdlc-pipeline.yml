@@ -92,7 +92,16 @@ jobs:
       - name: Fetch main (for re-diffing after each fix attempt)
         run: git fetch origin main
 
+      # actions/setup-python assumes a GitHub-hosted runner's own
+      # "runner" user/home-directory layout for its tool cache - on a
+      # self-hosted runner (subscription mode) that's someone else's
+      # laptop with its own user account, so this step fails outright
+      # with a permission error trying to create /Users/runner. Skipped
+      # there: the self-hosted runner already has a working Python (this
+      # whole repo's local dev workflow depends on it) - only the
+      # GitHub-hosted/api path needs a guaranteed, freshly-provisioned one.
       - name: Set up Python
+        if: needs.resolve_backend.outputs.backend != 'subscription'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -128,7 +137,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Same self-hosted-runner exception as code_review's own Set up
+      # Python step above - see that step's comment.
       - name: Set up Python
+        if: needs.resolve_backend.outputs.backend != 'subscription'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
