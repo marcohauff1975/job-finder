@@ -40,7 +40,7 @@ from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from sdlc.backend import run_agent
+from sdlc.backend import bash_tool_instructions, run_agent, run_via_subscription
 from sdlc.model_registry import load_agent_models
 
 # Makes `sdlc.tools...` importable whether this file is run directly
@@ -727,7 +727,10 @@ def review_code(diff: str) -> CodeReviewResult | None:
         tasks_config=tasks_config,
         model=_agent_models["code_reviewer"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(curl:*)",
+        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        extra_prompt_context=bash_tool_instructions(
+            ["check_pypi_package_version", "check_anthropic_model_id"]
+        ),
     )
 
 
@@ -784,8 +787,17 @@ def test_locally(change_summary: str, flow_to_test: str) -> LocalTestResult | No
     """Run the local test crew and return the structured result, or
     None if it failed."""
     inputs = {"change_summary": change_summary, "flow_to_test": flow_to_test}
-    result = local_test_crew.kickoff(inputs=inputs)
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="local_tester",
+        task_key="local_test_task",
+        inputs=inputs,
+        output_model=LocalTestResult,
+        kickoff=lambda: local_test_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["local_tester"],
+        cwd=str(REPO_ROOT),
+    )
 
 
 def test_performance(
@@ -799,8 +811,17 @@ def test_performance(
         "flow_to_test": flow_to_test,
         "baseline_seconds": str(baseline_seconds),
     }
-    result = performance_test_crew.kickoff(inputs=inputs)
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="local_tester",
+        task_key="performance_test_task",
+        inputs=inputs,
+        output_model=PerformanceTestResult,
+        kickoff=lambda: performance_test_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["local_tester"],
+        cwd=str(REPO_ROOT),
+    )
 
 
 def review_ux(
@@ -814,8 +835,19 @@ def review_ux(
         "ux_guidelines": UX_GUIDELINES,
         "base_url": base_url,
     }
-    result = ux_review_crew.kickoff(inputs=inputs)
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="ux_reviewer",
+        task_key="ux_review_task",
+        inputs=inputs,
+        output_model=UXReviewResult,
+        kickoff=lambda: ux_review_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["ux_reviewer"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        extra_prompt_context=bash_tool_instructions(["inspect_job_finder_page"]),
+    )
 
 
 def test_production(
@@ -841,8 +873,19 @@ def test_production(
         "remote_user": remote_user,
         "app_port": str(app_port),
     }
-    result = prod_test_crew.kickoff(inputs=inputs)
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="prod_tester",
+        task_key="prod_test_task",
+        inputs=inputs,
+        output_model=ProdTestResult,
+        kickoff=lambda: prod_test_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["prod_tester"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        extra_prompt_context=bash_tool_instructions(["check_production_health"]),
+    )
 
 
 def rollback(
@@ -873,8 +916,19 @@ def rollback(
         "service_name": service_name,
         "service_url": service_url,
     }
-    result = rollback_crew.kickoff(inputs=inputs)
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="rollback_agent",
+        task_key="rollback_task",
+        inputs=inputs,
+        output_model=RollbackResult,
+        kickoff=lambda: rollback_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["rollback_agent"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        extra_prompt_context=bash_tool_instructions(["rollback_production"]),
+    )
 
 
 def _write_linkedin_activity_log(result: ReadinessReviewResult) -> Path | None:
@@ -935,6 +989,75 @@ CONFIDENTIAL: {confidential}
     return path
 
 
+_READINESS_PERSONAS = [
+    ("cto", "cto_review_task", ["git_repo_status", "git_file_history", "read_repo_file", "github_live_repo_check"]),
+    (
+        "aws_lead_engineer",
+        "aws_review_task",
+        ["git_repo_status", "git_file_history", "read_repo_file", "aws_live_setup_check"],
+    ),
+    ("python_lead_engineer", "python_review_task", ["git_repo_status", "git_file_history", "read_repo_file"]),
+    ("data_engineer", "data_review_task", ["git_repo_status", "git_file_history", "read_repo_file"]),
+    ("ai_engineer", "ai_review_task", ["git_repo_status", "git_file_history", "read_repo_file"]),
+    (
+        "security_engineer",
+        "security_review_task",
+        ["git_repo_status", "git_file_history", "read_repo_file", "aws_live_setup_check", "github_live_repo_check"],
+    ),
+]
+
+
+def _review_project_readiness_via_subscription(inputs: dict[str, str]) -> ReadinessReviewResult | None:
+    """Subscription-mode equivalent of technology_excellence_crew.kickoff().
+    Each persona is a separate, stateless `claude -p` call - unlike one
+    CrewAI kickoff, there's no shared agent memory across them - so the
+    CTO's synthesis call at the end is fed all six results as explicit
+    context (including the CTO's own earlier review), mirroring what
+    Task(context=[...]) already does for the API path."""
+    persona_results: dict[str, PersonaReviewResult] = {}
+    for agent_key, task_key, tool_names in _READINESS_PERSONAS:
+        agent_cfg = agents_config[agent_key]
+        task_cfg = tasks_config[task_key]
+        result = run_via_subscription(
+            role=agent_cfg["role"],
+            goal=agent_cfg["goal"],
+            backstory=agent_cfg["backstory"],
+            task_description=task_cfg["description"].format(**inputs),
+            expected_output=task_cfg["expected_output"],
+            output_model=PersonaReviewResult,
+            model=_agent_models[agent_key],
+            cwd=str(REPO_ROOT),
+            allowed_tools="Bash(python -m sdlc.tool_cli *)",
+            extra_prompt_context=bash_tool_instructions(tool_names),
+        )
+        if result is None:
+            print(f"::error::{agent_key} produced no result in the Technology Excellence panel")
+            return None
+        persona_results[agent_key] = result
+
+    context_lines = [
+        f"--- {agent_key}'s review ---\n{persona_results[agent_key].model_dump_json()}"
+        for agent_key, _, _ in _READINESS_PERSONAS
+    ]
+    cto_cfg = agents_config["cto"]
+    synthesis_cfg = tasks_config["readiness_synthesis_task"]
+    return run_via_subscription(
+        role=cto_cfg["role"],
+        goal=cto_cfg["goal"],
+        backstory=cto_cfg["backstory"],
+        task_description=synthesis_cfg["description"].format(**inputs),
+        expected_output=synthesis_cfg["expected_output"],
+        output_model=ReadinessReviewResult,
+        model=_agent_models["cto"],
+        cwd=str(REPO_ROOT),
+        extra_prompt_context=(
+            "All six personas' findings (including your own earlier review, "
+            "repeated here since each separate call has no memory of the "
+            "others):\n\n" + "\n\n".join(context_lines)
+        ),
+    )
+
+
 def review_project_readiness(
     app_repo_path: str = JOB_FINDER_APP_REPO_PATH,
     infra_repo_path: str = JOB_FINDER_INFRA_REPO_PATH,
@@ -955,8 +1078,11 @@ def review_project_readiness(
     this always happens, not just on request, since that's the whole
     point of running this panel regularly."""
     inputs = {"app_repo_path": app_repo_path, "infra_repo_path": infra_repo_path}
-    result = technology_excellence_crew.kickoff(inputs=inputs)
-    readiness_result = result.pydantic if result.pydantic else None
+    if os.environ.get("AGENT_BACKEND", "api") == "subscription":
+        readiness_result = _review_project_readiness_via_subscription(inputs)
+    else:
+        result = technology_excellence_crew.kickoff(inputs=inputs)
+        readiness_result = result.pydantic if result.pydantic else None
     if readiness_result is not None:
         _write_linkedin_activity_log(readiness_result)
     return readiness_result
@@ -982,6 +1108,56 @@ def _format_architecture_for_engineer(result: ArchitectureDirectionResult) -> st
         lines += [f"- {item}" for item in result.non_functional_requirements]
     lines.append(f"Technical notes: {result.technical_notes}")
     return "\n".join(lines)
+
+
+def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResult | None:
+    """Subscription-mode equivalent of feature_build_crew.kickoff(). Runs
+    software_engineer as a single claude -p call, scoped to a real
+    isolated build_workspace() clone exactly like the API path - and,
+    critically, reaches it only through the tool_cli-wrapped
+    WorkspaceFileReadTool/WorkspaceFileWriterTool/WorkspaceEditTool (via
+    Bash), never Claude Code's own native Read/Edit. Those workspace
+    tools enforce a hard path-escape boundary (_safe_join, in
+    tools/build_workspace.py) that native Read/Edit has no equivalent
+    for - this exists specifically because a path-escape bug in these
+    exact tools once wiped the live app's own streamlit_app.py in
+    production (2026-07-10, see that module's docstring); granting
+    native Edit here would quietly reopen that exact class of bug.
+    Loses live mid-build delegation to product_manager/software_architect
+    (CrewAI's allow_delegation has no claude -p equivalent) - acceptable
+    since both are already fully resolved, already-approved inputs by the
+    time build_feature() is ever called, not something the engineer
+    should need to renegotiate."""
+    try:
+        with build_workspace() as workspace_path:
+            engineer_cfg = agents_config["software_engineer"]
+            task_cfg = tasks_config["feature_build_task"]
+            return run_via_subscription(
+                role=engineer_cfg["role"],
+                goal=engineer_cfg["goal"],
+                backstory=engineer_cfg["backstory"],
+                task_description=task_cfg["description"].format(**inputs),
+                expected_output=task_cfg["expected_output"],
+                output_model=FeatureBuildResult,
+                model=_agent_models["software_engineer"],
+                cwd=str(workspace_path),
+                allowed_tools="Bash(python -m sdlc.tool_cli *)",
+                extra_prompt_context=bash_tool_instructions(
+                    [
+                        "Read a file's content",
+                        "File Writer Tool",
+                        "Edit a file (find and replace)",
+                        "create_feature_branch_and_open_pr",
+                    ],
+                    workspace_dir=str(workspace_path),
+                ),
+            )
+    except Exception:
+        # Same defensive catch as build_feature() itself - a failed
+        # build_workspace() clone (e.g. GITHUB_PR_PUSH_TOKEN missing)
+        # raises RuntimeError, and must not escape this function
+        # uncaught any more than it does on the API path.
+        return None
 
 
 def build_feature(
@@ -1014,6 +1190,11 @@ def build_feature(
         "pm_requirements": _format_requirements_for_engineer(pm_result),
         "architecture_direction": _format_architecture_for_engineer(architect_result),
     }
+    if os.environ.get("AGENT_BACKEND", "api") == "subscription":
+        build_result = _build_feature_via_subscription(inputs)
+        if build_result is None or not _PR_URL_PATTERN.match(build_result.pr_url):
+            return None
+        return build_result
     try:
         # build_workspace() clones a fresh, throwaway copy of the repo
         # for this one build and deletes it afterward regardless of
@@ -1067,8 +1248,21 @@ def fix_deploy_failure(
         "workflow_file": workflow_file,
         "run_id": run_id,
     }
-    result = devops_fix_crew.kickoff(inputs=inputs)
-    return result.pydantic if result.pydantic else None
+    return run_agent(
+        agent_key="devops_agent",
+        task_key="devops_fix_task",
+        inputs=inputs,
+        output_model=DevOpsFixResult,
+        kickoff=lambda: devops_fix_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["devops_agent"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="Read,Edit,Bash(python -m sdlc.tool_cli *)",
+        extra_prompt_context=bash_tool_instructions(
+            ["fetch_failed_run_logs", "commit_and_push_fix", "retrigger_deploy_workflow"]
+        ),
+    )
 
 
 def challenge_requirement(
@@ -1083,7 +1277,44 @@ def challenge_requirement(
     full conversation rather than relying on in-process agent memory, so
     a session picked back up later challenges from the same accumulated
     context either way."""
-    result = requirements_challenge_crew.kickoff(inputs={"feature_request": conversation_text})
+    inputs = {"feature_request": conversation_text}
+    if os.environ.get("AGENT_BACKEND", "api") == "subscription":
+        pm_cfg = agents_config["product_manager"]
+        pm_task_cfg = tasks_config["feature_requirements_task"]
+        pm_result = run_via_subscription(
+            role=pm_cfg["role"],
+            goal=pm_cfg["goal"],
+            backstory=pm_cfg["backstory"],
+            task_description=pm_task_cfg["description"].format(**inputs),
+            expected_output=pm_task_cfg["expected_output"],
+            output_model=FeatureRequirementsResult,
+            model=_agent_models["product_manager"],
+            cwd=str(REPO_ROOT),
+        )
+        if pm_result is None:
+            return None
+
+        architect_cfg = agents_config["software_architect"]
+        architect_task_cfg = tasks_config["architecture_direction_task"]
+        architect_result = run_via_subscription(
+            role=architect_cfg["role"],
+            goal=architect_cfg["goal"],
+            backstory=architect_cfg["backstory"],
+            task_description=architect_task_cfg["description"].format(**inputs),
+            expected_output=architect_task_cfg["expected_output"],
+            output_model=ArchitectureDirectionResult,
+            model=_agent_models["software_architect"],
+            cwd=str(REPO_ROOT),
+            extra_prompt_context=(
+                "The Product Manager's requirements (given as context, per "
+                f"the task description above):\n{pm_result.model_dump_json()}"
+            ),
+        )
+        if architect_result is None:
+            return None
+        return pm_result, architect_result
+
+    result = requirements_challenge_crew.kickoff(inputs=inputs)
     if len(result.tasks_output) < 2:
         return None
     pm_result = result.tasks_output[0].pydantic

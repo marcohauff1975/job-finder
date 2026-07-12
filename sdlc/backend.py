@@ -49,6 +49,28 @@ def _clean_model_id(raw: str) -> str:
     return raw.removeprefix("anthropic/")
 
 
+def bash_tool_instructions(tool_names: list[str], workspace_dir: str | None = None) -> str:
+    """A prompt block documenting the one Bash command form an agent may
+    use to reach sdlc/tool_cli.py's tools (see that module's docstring for
+    why - it reuses the exact same BaseTool implementations API mode
+    calls directly, rather than asking the model to reinvent SSH/browser-
+    automation/git-push behavior from a description). Descriptions are
+    pulled from the tools' own .description - the same text CrewAI shows
+    the model in API mode - so there's exactly one place each tool's
+    behavior is documented, not two that could drift apart."""
+    from sdlc.tool_cli import TOOLS_BY_NAME
+
+    workspace_flag = f" --workspace-dir {workspace_dir}" if workspace_dir else ""
+    lines = [
+        "You have Bash access, restricted to exactly one command form: "
+        f"`python -m sdlc.tool_cli{workspace_flag} <tool_name> '<json kwargs>'`. "
+        "Available <tool_name> values and what each does:"
+    ]
+    for name in tool_names:
+        lines.append(f"- {name}: {TOOLS_BY_NAME[name].description}")
+    return "\n".join(lines)
+
+
 def _extract_json_object(text: str) -> str | None:
     """Claude sometimes wraps the requested JSON in prose or a markdown
     fence despite being told not to - pull out the first balanced-looking
@@ -74,17 +96,25 @@ def run_via_subscription(
     model: str,
     cwd: str,
     allowed_tools: str = "",
+    extra_prompt_context: str = "",
 ) -> T | None:
     """Run one agent turn as a headless `claude -p` call instead of a
     CrewAI/Anthropic-API call, parsing the response into the same
     Pydantic model CrewAI's output_pydantic would otherwise have
-    produced - so callers don't need to know which backend ran."""
+    produced - so callers don't need to know which backend ran.
+    extra_prompt_context is appended after the task description - used
+    for tool-invocation instructions (see bash_tool_instructions above)
+    and for threading prior tasks' results into a multi-step chain (see
+    e.g. review_project_readiness/challenge_requirement in SDLC.py),
+    mirroring what CrewAI's own Task(context=[...]) chaining does in API
+    mode."""
     schema = json.dumps(output_model.model_json_schema())
+    context_block = f"\n\n{extra_prompt_context}" if extra_prompt_context else ""
     prompt = (
         f"You are acting as: {role}\n"
         f"Your goal: {goal}\n"
         f"{backstory}\n\n"
-        f"Task:\n{task_description}\n\n"
+        f"Task:\n{task_description}{context_block}\n\n"
         f"Expected output: {expected_output}\n\n"
         "Respond with ONLY a single valid JSON object matching this exact "
         f"JSON schema - no prose before or after it, no markdown fence:\n{schema}"
@@ -139,13 +169,14 @@ def run_agent(
     model: str,
     cwd: str,
     allowed_tools: str = "",
+    extra_prompt_context: str = "",
 ) -> T | None:
-    """Single entry point review_code/fix_review_findings/arbiter_review
-    all route through: AGENT_BACKEND=subscription runs run_via_subscription
-    above, anything else (including unset) runs the given CrewAI kickoff
-    callable exactly as before - same try/except-return-None contract
-    either way, so the retry/escalation logic in code_review_runner.py
-    doesn't need to know which backend produced a None."""
+    """Single entry point every SDLC.py stage function routes through:
+    AGENT_BACKEND=subscription runs run_via_subscription above, anything
+    else (including unset) runs the given CrewAI kickoff callable exactly
+    as before - same try/except-return-None contract either way, so
+    callers (retry loops, escalation logic) don't need to know which
+    backend produced a None."""
     if os.environ.get("AGENT_BACKEND", "api") == "subscription":
         agent_cfg = agents_config[agent_key]
         task_cfg = tasks_config[task_key]
@@ -159,6 +190,7 @@ def run_agent(
             model=model,
             cwd=cwd,
             allowed_tools=allowed_tools,
+            extra_prompt_context=extra_prompt_context,
         )
 
     try:

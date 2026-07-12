@@ -542,6 +542,17 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
     current_models = load_agent_models()
     display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
 
+    # Every agent now routes through sdlc/backend.py's run_agent(), which
+    # checks this exact env var in whatever process actually runs it - so
+    # this reflects THIS process's own environment, not necessarily the
+    # AGENT_BACKEND GitHub Actions repo variable. They're deliberately
+    # separate: production Streamlit never has a `claude` CLI/subscription
+    # login available, so it always shows "API" here regardless of what
+    # the repo variable is set to for CI runs - only a local
+    # `streamlit run` with AGENT_BACKEND=subscription set beforehand
+    # actually shows "Subscription".
+    backend_label = "Subscription" if os.environ.get("AGENT_BACKEND", "api") == "subscription" else "API"
+
     rows = []
     for agent_key in agent_keys:
         recommended_id, rationale = RECOMMENDATIONS[agent_key]
@@ -549,6 +560,7 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         rows.append(
             {
                 "Agent": AGENT_DISPLAY_NAMES[agent_key],
+                "Backend": backend_label,
                 "Current model": current_label,
                 "Recommended": MODEL_DISPLAY_NAMES[recommended_id],
                 "New model": current_label,
@@ -564,7 +576,7 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
                 options=list(MODEL_DISPLAY_NAMES.values()), required=True
             ),
         },
-        disabled=["Agent", "Current model", "Recommended", "Why"],
+        disabled=["Agent", "Backend", "Current model", "Recommended", "Why"],
         use_container_width=True,
         hide_index=True,
         key=f"{widget_key_prefix}_editor",
@@ -808,6 +820,16 @@ if st.query_params.get("admin") is not None:
                 "sdlc/model_registry.py), and a control to change it. "
                 "Changes apply immediately to this running app and are "
                 "saved so they survive the next restart."
+            )
+            st.caption(
+                "**Backend** is API (metered Anthropic API billing) or "
+                "Subscription (a local `claude -p` call billed against a "
+                "Claude subscription instead - see sdlc/backend.py). It "
+                "reflects this process's own AGENT_BACKEND environment "
+                "variable, not the AGENT_BACKEND GitHub Actions repo "
+                "variable - the two are deliberately separate, since "
+                "production always runs here without a subscription login "
+                "available regardless of what CI is set to."
             )
 
             app_agent_keys = [

@@ -32,19 +32,20 @@ env:
   PROD_URL: https://yourmagicaljobfinder.online
 
 jobs:
-  # Decides which backend code_review actually uses, in exactly one place,
-  # so the runs-on choice below and the AGENT_BACKEND passed into the
-  # script can never disagree. AGENT_BACKEND (a repo variable, "api" by
-  # default) only ever resolves to "subscription" for a PR whose head repo
-  # is this repo - never a fork's. That's not a cost optimization, it's a
-  # security boundary: "subscription" routes the job onto a self-hosted
-  # runner (Marco's own laptop, authenticated via his Claude subscription -
-  # see sdlc/backend.py), and a self-hosted runner executing an external
+  # Decides which backend code_review/deploy actually use, in exactly one
+  # place, so the runs-on choice below and the AGENT_BACKEND passed into
+  # each script can never disagree. AGENT_BACKEND (a repo variable, "api"
+  # by default) only ever resolves to "subscription" for a trusted trigger
+  # - a same-repo PR (never a fork's), or a push/workflow_dispatch (which
+  # can only be triggered by someone with write access to begin with).
+  # That's not a cost optimization, it's a security boundary:
+  # "subscription" routes the job onto a self-hosted runner (Marco's own
+  # laptop, authenticated via his Claude subscription - see
+  # sdlc/backend.py), and a self-hosted runner executing an external
   # fork's checked-out code is GitHub's own documented anti-pattern for
   # public repos. A fork PR silently falls back to "api" (GitHub-hosted,
   # as always) regardless of what the toggle says.
   resolve_backend:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.resolve.outputs.backend }}
@@ -52,14 +53,14 @@ jobs:
       - id: resolve
         env:
           REQUESTED_BACKEND: ${{ vars.AGENT_BACKEND }}
-          IS_SAME_REPO_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          IS_TRUSTED_TRIGGER: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
-          if [ "$REQUESTED_BACKEND" = "subscription" ] && [ "$IS_SAME_REPO_PR" = "true" ]; then
+          if [ "$REQUESTED_BACKEND" = "subscription" ] && [ "$IS_TRUSTED_TRIGGER" = "true" ]; then
             echo "backend=subscription" >> "$GITHUB_OUTPUT"
           else
             echo "backend=api" >> "$GITHUB_OUTPUT"
           fi
-          echo "Resolved AGENT_BACKEND=$REQUESTED_BACKEND, same-repo PR=$IS_SAME_REPO_PR"
+          echo "Resolved AGENT_BACKEND=$REQUESTED_BACKEND, trusted trigger=$IS_TRUSTED_TRIGGER"
 
   code_review:
     needs: resolve_backend
@@ -115,10 +116,11 @@ jobs:
         run: python -m sdlc.code_review_runner
 
   deploy:
+    needs: resolve_backend
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY_ON_MERGE == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.resolve_backend.outputs.backend == 'subscription' && 'self-hosted' || 'ubuntu-latest' }}
     environment: production
     steps:
       - name: Checkout (full history, so we can diff against the previous commit)
@@ -221,6 +223,7 @@ jobs:
 
       - name: Run prod_tester (and rollback_agent if needed)
         env:
+          AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
           SSH_KEY_PATH: /tmp/deploy_key

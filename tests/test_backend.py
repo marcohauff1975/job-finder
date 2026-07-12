@@ -19,6 +19,28 @@ class FakeVerdict(BaseModel):
     reasoning: str
 
 
+class TestBashToolInstructions:
+    def test_lists_each_tool_with_its_real_description(self):
+        text = backend.bash_tool_instructions(["check_pypi_package_version"])
+
+        from sdlc.tool_cli import TOOLS_BY_NAME
+
+        assert "check_pypi_package_version" in text
+        assert TOOLS_BY_NAME["check_pypi_package_version"].description in text
+
+    def test_documents_the_exact_command_form(self):
+        text = backend.bash_tool_instructions(["check_anthropic_model_id"])
+
+        assert "python -m sdlc.tool_cli" in text
+        assert "<tool_name>" in text
+        assert "--workspace-dir" not in text
+
+    def test_includes_workspace_dir_flag_when_given(self):
+        text = backend.bash_tool_instructions(["File Writer Tool"], workspace_dir="/tmp/build-abc")
+
+        assert "--workspace-dir /tmp/build-abc" in text
+
+
 def _envelope(result_text: str) -> str:
     return json.dumps({"result": result_text, "session_id": "abc", "total_cost_usd": 0.0})
 
