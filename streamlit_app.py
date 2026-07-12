@@ -654,12 +654,8 @@ if st.query_params.get("admin") is not None:
                 serper_balance if serper_balance is not None else "unavailable",
             )
 
-            st.metric("Anthropic spend (estimated)", f"${get_estimated_anthropic_cost():.2f}")
-            st.caption(
-                "Estimated from actual token usage × published Sonnet pricing - "
-                "Anthropic doesn't expose a real balance to a regular API key. "
-                "[Top up credits / check real balance](https://platform.claude.com/dashboard)"
-            )
+</antml-parameter>
+
 
             st.markdown("#### Per user")
             st.caption(
