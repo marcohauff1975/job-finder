@@ -130,7 +130,7 @@ jobs:
           DIFF_FILE: /tmp/pr.diff
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: python -m sdlc.code_review_runner
+        run: python3 -m sdlc.code_review_runner
 
   deploy:
     needs: resolve_backend
@@ -257,7 +257,7 @@ jobs:
           NEW_COMMIT: ${{ steps.diff.outputs.new_commit }}
           CHANGE_SUMMARY: ${{ steps.diff.outputs.change_summary }}
           FLOW_TO_TEST: "The homepage loads and login/registration renders."
-        run: python -m sdlc.ai_prod_flow_runner
+        run: python3 -m sdlc.ai_prod_flow_runner
 
       - name: Clean up key material
         if: always()
