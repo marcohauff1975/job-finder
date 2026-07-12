@@ -36,7 +36,6 @@ from auth import AuthManager, delete_user, set_user_password
 from reporting import (
     VALID_TIERS,
     delete_user_data,
-    get_estimated_anthropic_cost,
     get_report,
     get_serper_balance,
     get_user_tier,
@@ -656,13 +655,6 @@ if st.query_params.get("admin") is not None:
             st.metric(
                 "Serper credits remaining",
                 serper_balance if serper_balance is not None else "unavailable",
-            )
-
-            st.metric("Anthropic spend (estimated)", f"${get_estimated_anthropic_cost():.2f}")
-            st.caption(
-                "Estimated from actual token usage × published Sonnet pricing - "
-                "Anthropic doesn't expose a real balance to a regular API key. "
-                "[Top up credits / check real balance](https://platform.claude.com/dashboard)"
             )
 
             st.markdown("#### Per user")
