@@ -657,6 +657,10 @@ if st.query_params.get("admin") is not None:
                 serper_balance if serper_balance is not None else "unavailable",
             )
 
+            st.caption(
+                "[Top up Anthropic credits / check real balance](https://platform.claude.com/dashboard)"
+            )
+
             st.markdown("#### Per user")
             st.caption(
                 "Tier controls which Claude model each user's agents use - see "
