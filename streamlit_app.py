@@ -77,6 +77,7 @@ from sdlc.requirements_sessions import (
     new_session_id,
     save_session,
 )
+from sdlc_agent_backend_mode import get_agent_backend, set_agent_backend
 from sdlc_agent_steps import get_agent_activity
 from sdlc_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
 from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
@@ -822,15 +823,52 @@ if st.query_params.get("admin") is not None:
                 "saved so they survive the next restart."
             )
             st.caption(
-                "**Backend** is API (metered Anthropic API billing) or "
-                "Subscription (a local `claude -p` call billed against a "
-                "Claude subscription instead - see sdlc/backend.py). It "
-                "reflects this process's own AGENT_BACKEND environment "
-                "variable, not the AGENT_BACKEND GitHub Actions repo "
-                "variable - the two are deliberately separate, since "
-                "production always runs here without a subscription login "
-                "available regardless of what CI is set to."
+                "**Backend** below is API (metered Anthropic API billing) "
+                "or Subscription (a local `claude -p` call billed against "
+                "a Claude subscription instead - see sdlc/backend.py). It "
+                "reflects THIS Streamlit process's own AGENT_BACKEND "
+                "environment variable, not the toggle right below - "
+                "production Streamlit never has a subscription login "
+                "available, so it always shows API here no matter what "
+                "that toggle is set to."
             )
+
+            current_agent_backend = get_agent_backend()
+            if current_agent_backend is None:
+                st.caption(
+                    "⚠️ Can't read the current CI agent backend - "
+                    "GITHUB_VARIABLES_TOKEN is either missing or doesn't "
+                    "have permission to read repo Actions variables."
+                )
+            else:
+                is_subscription = current_agent_backend == "subscription"
+                st.caption(
+                    f"GitHub Actions CI is currently on: "
+                    f"**{'Subscription' if is_subscription else 'API'}** "
+                    f"(`AGENT_BACKEND={current_agent_backend}` on GitHub)"
+                )
+                toggled_to_subscription = st.toggle(
+                    "🧑‍💻 Run CI agents on Marco's Claude subscription",
+                    value=is_subscription,
+                    key="agent_backend_toggle",
+                    help="Off (default): every SDLC agent in GitHub Actions "
+                    "runs against the metered Anthropic API, as normal. On: "
+                    "those same agents run instead as local `claude -p` "
+                    "calls on a self-hosted runner (Marco's own laptop, "
+                    "logged in via `claude login`) - only takes effect for "
+                    "his own pushes/PRs, never a fork's, and only while "
+                    "that runner is online. Meant for active testing "
+                    "sessions, not left on permanently.",
+                )
+                if toggled_to_subscription != is_subscription:
+                    new_value = "subscription" if toggled_to_subscription else "api"
+                    if not set_agent_backend(new_value):
+                        st.error(
+                            "Couldn't update the CI agent backend - check "
+                            "GITHUB_VARIABLES_TOKEN's permissions."
+                        )
+                        st.session_state["agent_backend_toggle"] = is_subscription
+                        st.rerun()
 
             app_agent_keys = [
                 key for key in AGENT_DISPLAY_NAMES if key not in TECH_EXCELLENCE_AGENT_KEYS
