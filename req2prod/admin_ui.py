@@ -523,6 +523,14 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         disabled=["Agent", "Recommended (API)", "Recommended (Subscription)", "Why"],
         use_container_width=True,
         hide_index=True,
+        # Tall enough to wrap the longest "Why" text (the API+Subscription
+        # rationale for pr_fix_agent/pr_arbiter, ~450 characters) fully into
+        # view at the "large" column width above, rather than clipping it
+        # to one line and requiring a click into the cell to read the
+        # rest. Shorter agents' rows get the same fixed height with blank
+        # space below the wrapped text - st.data_editor only supports one
+        # uniform row_height for the whole grid, not per-row sizing.
+        row_height=260,
         key=f"{widget_key_prefix}_editor",
     )
 
