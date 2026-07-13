@@ -11,10 +11,14 @@ name: DevOps auto-fix on deploy failure
 # pull_request event explicitly rather than reacting to every failure
 # of the combined workflow.
 #
-# Guards against looping: if the most recent commit on main is already
-# a previous devops-agent fix, that fix evidently didn't resolve the
-# failure - this stops and emails instead of trying again
-# automatically.
+# Two guards against runaway cost:
+#  1. Self-loop guard: if the most recent commit on main is already a
+#     previous devops-agent fix, that fix evidently didn't resolve the
+#     failure - stop and email instead of trying again automatically.
+#  2. Circuit breaker: if this workflow has already run many times in a
+#     short window (many distinct deploys failing at once), stop and email
+#     rather than firing more agent runs - this is what bounds the total
+#     volume the self-loop guard alone can't.
 on:
   workflow_run:
     workflows: ["Deploy to production", "Req2Prod Pipeline"]
@@ -67,31 +71,62 @@ jobs:
             echo "already_tried=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Circuit breaker - stop if too many auto-fix runs recently
+        id: breaker
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The commit-based guard above only catches an immediate self-loop
+          # (last commit was our own fix). It does NOT bound the total volume
+          # when many distinct deploys fail in a burst - which is how a single
+          # bad morning produced ~36 auto-fix runs. This caps the blast radius:
+          # if this workflow has already run MAX_RUNS times in the last
+          # WINDOW_MIN minutes, stop auto-fixing and let a human look instead
+          # of burning more agent runs. Fail-open (proceed) if the check errors.
+          WINDOW_MIN=45
+          MAX_RUNS=6
+          count=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/devops-agent.yml/runs?per_page=100" \
+            | python3 -c "
+          import sys, json, datetime
+          cut = datetime.datetime.utcnow() - datetime.timedelta(minutes=${WINDOW_MIN})
+          runs = json.load(sys.stdin).get('workflow_runs', [])
+          print(sum(1 for r in runs if datetime.datetime.strptime(r['created_at'], '%Y-%m-%dT%H:%M:%SZ') >= cut))
+          ") || count=0
+          count=${count:-0}
+          echo "DevOps auto-fix runs in the last ${WINDOW_MIN}m: ${count} (limit ${MAX_RUNS})"
+          if [ "$count" -ge "$MAX_RUNS" ]; then
+            echo "circuit_open=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "circuit_open=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Same self-hosted-runner exception as req2prod-pipeline.yml's own Set
       # up Python steps - actions/setup-python assumes a GitHub-hosted
       # runner's "runner" user/home-directory layout for its tool cache,
       # which fails outright on a self-hosted runner (subscription mode)
       # that's someone else's laptop with its own user account.
       - name: Set up Python
-        if: steps.guard.outputs.already_tried == 'false' && needs.resolve_backend.outputs.backend != 'subscription'
+        if: steps.guard.outputs.already_tried == 'false' && steps.breaker.outputs.circuit_open == 'false' && needs.resolve_backend.outputs.backend != 'subscription'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies
-        if: steps.guard.outputs.already_tried == 'false'
+        if: steps.guard.outputs.already_tried == 'false' && steps.breaker.outputs.circuit_open == 'false'
         # Same self-hosted-runner PATH reasoning as req2prod-pipeline.yml's
         # own install steps - see that file's code_review job comment.
         run: python3 -m pip install -r requirements.txt
 
       - name: Set up git identity for the auto-fix commit
-        if: steps.guard.outputs.already_tried == 'false'
+        if: steps.guard.outputs.already_tried == 'false' && steps.breaker.outputs.circuit_open == 'false'
         run: |
           git config user.name "devops-agent"
           git config user.email "devops-agent@users.noreply.github.com"
 
       - name: Run devops_agent
-        if: steps.guard.outputs.already_tried == 'false'
+        if: steps.guard.outputs.already_tried == 'false' && steps.breaker.outputs.circuit_open == 'false'
         env:
           AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
           # Only set for "api" mode - see req2prod-pipeline.yml's matching
@@ -104,8 +139,8 @@ jobs:
           FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
         run: python3 -m req2prod.devops_agent_runner
 
-      - name: Notify that this needs a human (already tried once)
-        if: steps.guard.outputs.already_tried == 'true'
+      - name: Notify that this needs a human (already retried, or too many auto-fix runs)
+        if: steps.guard.outputs.already_tried == 'true' || steps.breaker.outputs.circuit_open == 'true'
         env:
           FAILED_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
