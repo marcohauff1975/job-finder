@@ -28,6 +28,7 @@ import streamlit as st
 from req2prod.Req2Prod import (
     ArchitectureDirectionResult,
     FeatureRequirementsResult,
+    agents_config,
     build_feature,
     challenge_requirement,
 )
@@ -642,3 +643,19 @@ def render_ai_models_tab() -> None:
         "deployed app itself."
     )
     _render_agent_model_table(TECH_EXCELLENCE_AGENT_KEYS, "tech_excellence_agents")
+
+    st.markdown("##### How this crew is built")
+    st.caption(
+        "Role and backstory read live from req2prod/config/agents.yaml, "
+        "not a static writeup - this always matches the real prompt each "
+        "persona runs with. Lessons (incident-derived rules learned over "
+        "time) and skills (which tools each persona can call) aren't "
+        "wired in here yet - coming soon."
+    )
+    for agent_key in TECH_EXCELLENCE_AGENT_KEYS:
+        cfg = agents_config[agent_key]
+        with st.expander(AGENT_DISPLAY_NAMES[agent_key]):
+            st.markdown(f"**Role**\n\n{cfg['role'].strip()}")
+            st.markdown(f"**Backstory**\n\n{cfg['backstory'].strip()}")
+            st.caption("Lessons: coming soon")
+            st.caption("Skills: coming soon")
