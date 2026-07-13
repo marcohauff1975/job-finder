@@ -224,16 +224,18 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
-        tab_overview, tab_req2prod, tab_requirements, tab_models, tab_cto_cockpit = st.tabs(
-            ["Overview", "Req2Prod Pipeline", "Request a New Feature", "AI Models", "CTO Cockpit"]
+        tab_overview, tab_req2prod, tab_models, tab_cto_cockpit = st.tabs(
+            ["Overview", "Req2Prod", "AI Models", "CTO Cockpit"]
         )
 
         with tab_overview:
             render_overview_tab(UNLIMITED_USER)
         with tab_req2prod:
-            render_req2prod_pipeline_tab()
-        with tab_requirements:
-            render_requirements_tab()
+            sub_pipeline, sub_requirements = st.tabs(["Pipeline", "Request a New Feature"])
+            with sub_pipeline:
+                render_req2prod_pipeline_tab()
+            with sub_requirements:
+                render_requirements_tab()
         with tab_models:
             render_ai_models_tab()
         with tab_cto_cockpit:
