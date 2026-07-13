@@ -20,8 +20,8 @@
     "subscription": "anthropic/claude-haiku-4-5-20251001"
   },
   "devops_agent": {
-    "api": "anthropic/claude-sonnet-5",
-    "subscription": "anthropic/claude-sonnet-5"
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
   },
   "pr_fix_agent": {
     "api": "anthropic/claude-sonnet-5",
