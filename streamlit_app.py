@@ -48,7 +48,7 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
-from cto_cockpit_admin import render_cto_cockpit_tab
+from cto_cockpit_admin import render_architecture_tab, render_connectivity_tab, render_cost_tab
 from jobfinder_admin import render_overview_tab
 from req2prod.admin_ui import render_ai_models_tab, render_requirements_tab, render_req2prod_pipeline_tab
 
@@ -62,7 +62,7 @@ DAILY_RESEARCH_LIMIT = 1
 UNLIMITED_USER = "marco.hauff@gmail.com"
 
 ADMIN_SECRET_NAME = "job-finder/admin-password"
-AWS_REGION = "eu-north-1"
+AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
 
 
 @st.cache_resource
@@ -241,7 +241,15 @@ if st.query_params.get("admin") is not None:
         with tab_models:
             render_ai_models_tab()
         with tab_cto_cockpit:
-            render_cto_cockpit_tab()
+            sub_architecture, sub_connectivity, sub_cost = st.tabs(
+                ["Architecture", "Connectivity", "Cost"]
+            )
+            with sub_architecture:
+                render_architecture_tab()
+            with sub_connectivity:
+                render_connectivity_tab()
+            with sub_cost:
+                render_cost_tab()
     st.stop()
 
 st.markdown(

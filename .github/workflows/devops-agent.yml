@@ -94,7 +94,10 @@ jobs:
         if: steps.guard.outputs.already_tried == 'false'
         env:
           AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Only set for "api" mode - see req2prod-pipeline.yml's matching
+          # comment: claude -p (subscription mode) refuses to run when both
+          # an API key and a claude.ai login are present.
+          ANTHROPIC_API_KEY: ${{ needs.resolve_backend.outputs.backend == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           FAILED_WORKFLOW_FILE: ${{ github.event.workflow_run.path }}

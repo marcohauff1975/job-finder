@@ -40,13 +40,7 @@ from req2prod.model_registry import (
     load_agent_models,
     set_agent_model,
 )
-from req2prod.requirements_sessions import (
-    delete_session,
-    list_sessions,
-    load_session,
-    new_session_id,
-    save_session,
-)
+from req2prod.requirements_sessions import new_session_id, save_session
 from req2prod_agent_backend_mode import get_agent_backend, set_agent_backend
 from req2prod_agent_steps import get_agent_activity
 from req2prod_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
@@ -187,44 +181,17 @@ def render_requirements_tab() -> None:
     it challenged by the product_manager and software_architect agents
     (req2prod/Req2Prod.py's challenge_requirement) - chat layout modeled on
     Claude Code's own UI: message history on top, input pinned to the
-    bottom, sessions managed from an expander at the top of this tab
-    (not st.sidebar - that's a page-level singleton that renders on every
-    admin tab regardless of which st.tabs() body is on-screen, since
-    Streamlit runs every tab's body on every rerun; an expander is scoped
-    to this tab's own container). Each session is a JSON file under
-    data/requirements_sessions/ (req2prod/requirements_sessions.py).
+    bottom. No session list/switcher UI - a session id is created
+    automatically the moment the first message is sent (see the
+    st.chat_input handler below) and persists for the life of this
+    browser tab's Streamlit session; still saved to a JSON file under
+    data/requirements_sessions/ (req2prod/requirements_sessions.py) so
+    a run isn't lost if the page reruns mid-conversation.
 
     Renamed from streamlit_app.py's _render_requirements_challenge_page -
     body otherwise unchanged, including the [DIAG] print statements and
     the deploy-mode-resync handling below (both address real production
     issues, not cleanup candidates)."""
-    with st.expander("Sessions", expanded=True):
-        st.markdown("### 💬 Request a New Feature")
-        if st.button("+ New session", key="rc_new_session", use_container_width=True):
-            st.session_state["rc_session_id"] = new_session_id()
-            st.session_state["rc_messages"] = []
-            st.rerun()
-        st.markdown("---")
-        st.caption("Recent sessions")
-        sessions = list_sessions()
-        if not sessions:
-            st.caption("No sessions yet.")
-        for session in sessions:
-            is_active = session["id"] == st.session_state.get("rc_session_id")
-            label = ("▶ " if is_active else "") + session["title"]
-            session_col, delete_col = st.columns([5, 1])
-            if session_col.button(label, key=f"rc_session_{session['id']}", use_container_width=True):
-                st.session_state["rc_session_id"] = session["id"]
-                loaded = load_session(session["id"])
-                st.session_state["rc_messages"] = loaded["messages"] if loaded else []
-                st.rerun()
-            if delete_col.button("🗑️", key=f"rc_delete_{session['id']}", help="Delete this session"):
-                delete_session(session["id"])
-                if is_active:
-                    st.session_state["rc_session_id"] = new_session_id()
-                    st.session_state["rc_messages"] = []
-                st.rerun()
-
     st.markdown(
         '<div class="hero-badge">✨ Powered by AI agents</div>'
         '<div class="hero-title" style="font-size:1.8rem;">Request a New Feature</div>'

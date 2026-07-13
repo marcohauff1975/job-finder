@@ -1,11 +1,13 @@
 """
-Unit tests for cto_cockpit_admin.py - the CTO Cockpit "live architecture"
-page. Unlike most of this app's Streamlit UI, this feature's data source
-is pure local filesystem reads (no network calls, no auth), which makes
-it genuinely unit-testable: the drift guard, the data-building functions,
-and the SVG renderer are all tested directly as pure functions, with one
-streamlit.testing.v1.AppTest smoke test on top for the actual Streamlit
-wiring - the first AppTest-based test in this repo.
+Unit tests for cto_cockpit_admin.py's three sub-tabs: Architecture (pure
+local filesystem reads, no network, no auth - the drift guard,
+data-building functions, and SVG renderer are tested directly as pure
+functions), Connectivity, and Cost. Connectivity/Cost render forms and
+data backed by real AWS/GitHub/Anthropic calls (cto_cockpit_connectivity.py)
+gated behind st.button, so a plain AppTest.run() smoke check never
+triggers them - EXCEPT render_cost_tab(), which calls
+get_github_actions_billing() unconditionally on every render, so that
+one function is monkeypatched here to keep this test file network-free.
 """
 
 from streamlit.testing.v1 import AppTest
@@ -170,14 +172,26 @@ class TestRenderArchitectureSvg:
         assert _width(wide) > _width(narrow)
 
 
-_SMOKE_SCRIPT = """
+_ARCHITECTURE_SCRIPT = """
 import cto_cockpit_admin as m
 
-m.render_cto_cockpit_tab()
+m.render_architecture_tab()
+"""
+
+_CONNECTIVITY_SCRIPT = """
+import cto_cockpit_admin as m
+
+m.render_connectivity_tab()
+"""
+
+_COST_SCRIPT = """
+import cto_cockpit_admin as m
+
+m.render_cost_tab()
 """
 
 
-class TestRenderCtoCockpitTabSmoke:
+class TestRenderArchitectureTabSmoke:
     """AppTest.from_function only extracts the target function's own
     source lines (via inspect.getsourcelines()) - it never carries the
     enclosing module's imports, so it can't see this module's
@@ -186,14 +200,14 @@ class TestRenderCtoCockpitTabSmoke:
     function normally."""
 
     def test_renders_with_no_exceptions(self):
-        at = AppTest.from_string(_SMOKE_SCRIPT)
+        at = AppTest.from_string(_ARCHITECTURE_SCRIPT)
 
         at.run(timeout=30)
 
         assert not at.exception
 
     def test_shows_the_architecture_svg(self):
-        at = AppTest.from_string(_SMOKE_SCRIPT)
+        at = AppTest.from_string(_ARCHITECTURE_SCRIPT)
 
         at.run(timeout=30)
 
@@ -201,15 +215,94 @@ class TestRenderCtoCockpitTabSmoke:
         assert "<svg" in markdown_html
 
     def test_shows_one_expander_per_product_plus_shared(self):
-        at = AppTest.from_string(_SMOKE_SCRIPT)
+        at = AppTest.from_string(_ARCHITECTURE_SCRIPT)
 
         at.run(timeout=30)
 
         assert len(at.expander) == len(m.PRODUCTS) + 1
 
-    def test_shows_the_aws_setup_placeholder(self):
-        at = AppTest.from_string(_SMOKE_SCRIPT)
+
+class TestRenderConnectivityTabSmoke:
+    """No network mocking needed here: test_*_connection/save_env_values
+    are all gated behind st.button, so a plain AppTest.run() (no
+    simulated click) never invokes them."""
+
+    def test_renders_with_no_exceptions(self):
+        at = AppTest.from_string(_CONNECTIVITY_SCRIPT)
 
         at.run(timeout=30)
 
-        assert any("Coming soon" in info.value for info in at.info)
+        assert not at.exception
+
+    def test_shows_a_section_per_connectivity_target(self):
+        at = AppTest.from_string(_CONNECTIVITY_SCRIPT)
+
+        at.run(timeout=30)
+
+        markdown_text = "\n".join(md.value for md in at.markdown)
+        for heading in ("AWS", "GitHub", "Claude / Anthropic", "Serper"):
+            assert heading in markdown_text
+
+    def test_shows_test_and_save_buttons_for_every_section(self):
+        at = AppTest.from_string(_CONNECTIVITY_SCRIPT)
+
+        at.run(timeout=30)
+
+        labels = [b.label for b in at.button]
+        # AWS, GitHub, Anthropic, Serper - one Test + one Save each.
+        assert labels.count("Test connection") == 4
+        assert labels.count("Save") == 4
+
+
+class TestRenderCostTabSmoke:
+    """render_cost_tab() gates get_github_actions_billing() behind a
+    "Check GitHub usage" button rather than calling it on every render
+    - Streamlit runs every tab's body on every rerun regardless of
+    which tab is on-screen, so an unconditional live call here would
+    fire even while the user is looking at a different admin tab
+    entirely. Only the button-click test needs monkeypatching."""
+
+    def test_renders_with_no_exceptions(self):
+        at = AppTest.from_string(_COST_SCRIPT)
+
+        at.run(timeout=30)
+
+        assert not at.exception
+
+    def test_shows_the_aws_cost_placeholder(self):
+        at = AppTest.from_string(_COST_SCRIPT)
+
+        at.run(timeout=30)
+
+        assert any("ce:GetCostAndUsage" in info.value for info in at.info)
+
+    def test_shows_github_usage_when_button_clicked(self, monkeypatch):
+        monkeypatch.setattr(
+            m, "get_github_actions_billing", lambda token, owner: ({"total_minutes_used": 7}, None)
+        )
+        at = AppTest.from_string(_COST_SCRIPT)
+        at.run(timeout=30)
+
+        at.button(key="cost_check_github").click().run(timeout=30)
+
+        assert not at.exception
+        assert any("total_minutes_used" in str(j.value) for j in at.json)
+
+    def test_does_not_call_github_before_the_button_is_clicked(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            m, "get_github_actions_billing", lambda token, owner: called.append(1) or (None, "error")
+        )
+        at = AppTest.from_string(_COST_SCRIPT)
+
+        at.run(timeout=30)
+
+        assert called == []
+
+    def test_shows_the_ai_dashboard_link(self):
+        at = AppTest.from_string(_COST_SCRIPT)
+
+        at.run(timeout=30)
+
+        caption_text = "\n".join(c.value for c in at.caption)
+        assert "platform.claude.com/dashboard" in caption_text
