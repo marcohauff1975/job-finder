@@ -48,6 +48,7 @@ from job_search import (
     tailor_resume_for_job,
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
+from cto_cockpit_admin import render_cto_cockpit_tab
 from jobfinder_admin import render_overview_tab
 from req2prod.admin_ui import render_ai_models_tab, render_requirements_tab, render_req2prod_pipeline_tab
 
@@ -223,8 +224,8 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
-        tab_overview, tab_req2prod, tab_requirements, tab_models = st.tabs(
-            ["Overview", "Req2Prod Pipeline", "Request a New Feature", "AI Models"]
+        tab_overview, tab_req2prod, tab_requirements, tab_models, tab_cto_cockpit = st.tabs(
+            ["Overview", "Req2Prod Pipeline", "Request a New Feature", "AI Models", "CTO Cockpit"]
         )
 
         with tab_overview:
@@ -235,6 +236,8 @@ if st.query_params.get("admin") is not None:
             render_requirements_tab()
         with tab_models:
             render_ai_models_tab()
+        with tab_cto_cockpit:
+            render_cto_cockpit_tab()
     st.stop()
 
 st.markdown(
