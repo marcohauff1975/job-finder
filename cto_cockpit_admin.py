@@ -304,7 +304,10 @@ def _render_credential_section(
 
     typed_values: dict[str, str] = {}
     for field in fields:
-        current = os.getenv(field.env_var, "")
+        current = os.getenv(
+            field.env_var,
+            DEFAULT_GITHUB_REPO if field.env_var == "GITHUB_REPO" else "",
+        )
         if field.secret:
             st.caption(_secret_hint(current))
             typed_values[field.env_var] = st.text_input(
