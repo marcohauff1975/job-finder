@@ -224,22 +224,36 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
+        # on_change="rerun" makes each tab's .open reflect whether it's
+        # actually the visible one - by default (on_change="ignore") every
+        # tab's body runs on every rerun regardless of which is selected,
+        # which was letting render_requirements_tab()'s st.sidebar block
+        # leak into every other tab, since st.sidebar isn't confined to
+        # whichever tab container is on-screen.
         tab_overview, tab_req2prod, tab_models, tab_cto_cockpit = st.tabs(
-            ["Overview", "Req2Prod", "AI Models", "CTO Cockpit"]
+            ["Overview", "Req2Prod", "AI Models", "CTO Cockpit"], on_change="rerun"
         )
 
-        with tab_overview:
-            render_overview_tab(UNLIMITED_USER)
-        with tab_req2prod:
-            sub_pipeline, sub_requirements = st.tabs(["Pipeline", "Request a New Feature"])
-            with sub_pipeline:
-                render_req2prod_pipeline_tab()
-            with sub_requirements:
-                render_requirements_tab()
-        with tab_models:
-            render_ai_models_tab()
-        with tab_cto_cockpit:
-            render_cto_cockpit_tab()
+        if tab_overview.open:
+            with tab_overview:
+                render_overview_tab(UNLIMITED_USER)
+        if tab_req2prod.open:
+            with tab_req2prod:
+                sub_pipeline, sub_requirements = st.tabs(
+                    ["Pipeline", "Request a New Feature"], on_change="rerun"
+                )
+                if sub_pipeline.open:
+                    with sub_pipeline:
+                        render_req2prod_pipeline_tab()
+                if sub_requirements.open:
+                    with sub_requirements:
+                        render_requirements_tab()
+        if tab_models.open:
+            with tab_models:
+                render_ai_models_tab()
+        if tab_cto_cockpit.open:
+            with tab_cto_cockpit:
+                render_cto_cockpit_tab()
     st.stop()
 
 st.markdown(
