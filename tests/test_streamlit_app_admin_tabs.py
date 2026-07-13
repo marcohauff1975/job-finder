@@ -24,7 +24,7 @@ def _run_admin_app():
 
 
 class TestAdminSidebarOnlyOnRequestNewFeature:
-    def test_sidebar_is_empty_on_the_default_overview_tab(self):
+    def test_sidebar_is_empty_on_the_default_jobfinder_admin_tab(self):
         at = _run_admin_app()
 
         assert not at.exception
@@ -33,4 +33,4 @@ class TestAdminSidebarOnlyOnRequestNewFeature:
     def test_top_level_tabs_render(self):
         at = _run_admin_app()
 
-        assert [t.proto.label for t in at.tabs] == ["Overview", "Req2Prod", "AI Models", "CTO Cockpit"]
+        assert [t.proto.label for t in at.tabs] == ["Jobfinder Admin", "Req2Prod", "AI Models", "CTO Cockpit"]

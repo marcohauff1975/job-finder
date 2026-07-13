@@ -592,6 +592,9 @@ def render_ai_models_tab() -> None:
     streamlit_app.py's former `with tab_models:` body - no logic
     changes."""
     st.caption(
+        "[Top up Anthropic credits / check real balance](https://platform.claude.com/dashboard)"
+    )
+    st.caption(
         "Every Req2Prod agent has two independent model assignments "
         "below - one for the API, one for a Claude subscription - "
         "each with its own recommendation (see "

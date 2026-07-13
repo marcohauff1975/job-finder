@@ -231,7 +231,7 @@ if st.query_params.get("admin") is not None:
         # leak into every other tab, since st.sidebar isn't confined to
         # whichever tab container is on-screen.
         tab_overview, tab_req2prod, tab_models, tab_cto_cockpit = st.tabs(
-            ["Overview", "Req2Prod", "AI Models", "CTO Cockpit"], on_change="rerun"
+            ["Jobfinder Admin", "Req2Prod", "AI Models", "CTO Cockpit"], on_change="rerun"
         )
 
         if tab_overview.open:
