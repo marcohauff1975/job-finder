@@ -1,15 +1,15 @@
 """
-SDLC - Code Reviewer + Local Tester + UX Reviewer + Prod Tester +
+Req2Prod - Code Reviewer + Local Tester + UX Reviewer + Prod Tester +
 Rollback agents.
 
 Separate from the product agents in job_search.py: these agents help
 review, test, and (if needed) roll back changes to this app itself -
 they are dev/ops tooling, not something the deployed Streamlit app
-ever imports or runs. Nothing under sdlc/ needs to reach production.
+ever imports or runs. Nothing under req2prod/ needs to reach production.
 
 The agents and tasks are defined in plain text in:
-    sdlc/config/agents.yaml
-    sdlc/config/tasks.yaml
+    req2prod/config/agents.yaml
+    req2prod/config/tasks.yaml
 This file just loads those definitions, wires them together, and
 exposes one function per stage.
 
@@ -25,7 +25,7 @@ Not yet wired up (deliberately left for a later pass):
 
 Run directly for a quick manual test of the wiring (uses the DEMO_*
 constants below):
-    python SDLC.py
+    python Req2Prod.py
 """
 
 import os
@@ -40,28 +40,28 @@ from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from sdlc.backend import bash_tool_instructions, run_agent, run_via_subscription
-from sdlc.model_registry import load_agent_models
+from req2prod.backend import bash_tool_instructions, run_agent, run_via_subscription
+from req2prod.model_registry import load_agent_models
 
-# Makes `sdlc.tools...` importable whether this file is run directly
-# (python SDLC.py, per the docstring above) or imported as sdlc.SDLC.
+# Makes `req2prod.tools...` importable whether this file is run directly
+# (python Req2Prod.py, per the docstring above) or imported as req2prod.Req2Prod.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from sdlc.tools.dependency_check import AnthropicModelCheckTool, PackageVersionCheckTool
-from sdlc.tools.devops_ops import (
+from req2prod.tools.dependency_check import AnthropicModelCheckTool, PackageVersionCheckTool
+from req2prod.tools.devops_ops import (
     CommitAndPushFixTool,
     FetchFailedRunLogsTool,
     RetriggerWorkflowTool,
 )
-from sdlc.tools.ux_inspector import UXPageInspectorTool
-from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
-from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
-from sdlc.tools.aws_audit import AWSLiveSetupTool
-from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
-from sdlc.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
-from sdlc.tools.build_workspace import (
+from req2prod.tools.ux_inspector import UXPageInspectorTool
+from req2prod.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
+from req2prod.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
+from req2prod.tools.aws_audit import AWSLiveSetupTool
+from req2prod.tools.github_audit import GitHubLiveRepoCheckTool
+from req2prod.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
+from req2prod.tools.build_workspace import (
     build_workspace,
     WorkspaceEditTool,
     WorkspaceFileReadTool,
@@ -200,11 +200,11 @@ class FeatureBuildResult(BaseModel):
 
 
 # --- Demo inputs ----------------------------------------------------------
-# Only used when running this file directly (python SDLC.py) for a
+# Only used when running this file directly (python Req2Prod.py) for a
 # quick wiring test.
 
 DEMO_DIFF = "diff --git a/example.py b/example.py\n+print('hello')\n"
-DEMO_CHANGE_SUMMARY = "Example change for testing the SDLC crew wiring."
+DEMO_CHANGE_SUMMARY = "Example change for testing the Req2Prod crew wiring."
 DEMO_FLOW_TO_TEST = "Load the home page and confirm it renders."
 DEMO_SERVICE_URL = "https://yourmagicaljobfinder.online"
 
@@ -240,7 +240,7 @@ with open(CONFIG_DIR / "ux_guidelines.md", "r") as f:
 # --- LLM ------------------------------------------------------------------
 # Which Claude model each agent below runs on is data, not code: it lives
 # in config/agent_models.json and is editable live from the admin "AI
-# Models" tab in streamlit_app.py (see sdlc/model_registry.py). _llm()
+# Models" tab in streamlit_app.py (see req2prod/model_registry.py). _llm()
 # just looks up that agent's current assignment at import time.
 
 _agent_models = load_agent_models()
@@ -409,7 +409,7 @@ devops_fix_crew = Crew(
 # Marco isn't a developer and can't judge code_reviewer's findings
 # himself, so these two exist to make sure a PR never needs him as the
 # fallback. pr_fix_agent only edits files - it never commits or pushes
-# itself (see sdlc/code_review_runner.py, which owns git end to end and
+# itself (see req2prod/code_review_runner.py, which owns git end to end and
 # pushes once, after every attempt is done, not once per attempt - see
 # that file's own docstring for why). pr_arbiter is the real final
 # call once the review/fix loop is exhausted: unlike the old behavior
@@ -493,13 +493,13 @@ _readiness_tools = [
 ]
 
 # aws_lead_engineer and security_engineer also get aws_live_setup_check
-# (sdlc/tools/aws_audit.py) - the only two personas who need to compare
+# (req2prod/tools/aws_audit.py) - the only two personas who need to compare
 # the real, currently-running AWS account against what the Terraform
 # code in crewai-infra claims, since drift between the two (e.g. a
 # policy attached by hand) is invisible to a code-only review.
 _aws_live_tools = _readiness_tools + [AWSLiveSetupTool()]
 
-# cto and security_engineer also get github_live_repo_check (sdlc/tools/
+# cto and security_engineer also get github_live_repo_check (req2prod/tools/
 # github_audit.py) - what a real visitor/GitHub itself actually sees
 # (is the repo even public, are Dependabot/secret-scanning turned on)
 # rather than only local git state, which can't show any of that.
@@ -583,7 +583,7 @@ technology_excellence_crew = Crew(
 # -> Software Engineer. Scoped to this repo (crewai-starter) only -
 # software_engineer never touches the sibling crewai-infra repo. Model
 # tier per agent is set in config/agent_models.json, editable from the
-# admin "AI Models" tab - see sdlc/model_registry.py for the current
+# admin "AI Models" tab - see req2prod/model_registry.py for the current
 # recommendation and reasoning per agent.
 # software_engineer has allow_delegation=True, which gives it CrewAI's
 # built-in "ask question to coworker" tool - so it can genuinely turn
@@ -684,7 +684,7 @@ requirements_challenge_crew = Crew(
     verbose=True,
 )
 
-# Looked up by sdlc.model_registry.set_agent_model() so a model change
+# Looked up by req2prod.model_registry.set_agent_model() so a model change
 # made from the admin "AI Models" tab can mutate the already-constructed
 # Agent's .llm directly, taking effect immediately in this running
 # process instead of only on the next restart.
@@ -712,10 +712,10 @@ AGENTS_BY_KEY = {
 def review_code(diff: str) -> CodeReviewResult | None:
     """Run the code review crew over a diff and return the structured
     result, or None if it failed. Routes through run_agent() (see
-    sdlc/backend.py) so this also works under AGENT_BACKEND=subscription -
+    req2prod/backend.py) so this also works under AGENT_BACKEND=subscription -
     a None here still just means "no result" either way (a known
     intermittent CrewAI/provider flake on the API path, not a verdict on
-    the diff); the caller (sdlc/code_review_runner.py) retries on None."""
+    the diff); the caller (req2prod/code_review_runner.py) retries on None."""
     inputs = {"diff": diff}
     return run_agent(
         agent_key="code_reviewer",
@@ -727,7 +727,7 @@ def review_code(diff: str) -> CodeReviewResult | None:
         tasks_config=tasks_config,
         model=_agent_models["code_reviewer"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        allowed_tools="Bash(python -m req2prod.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(
             ["check_pypi_package_version", "check_anthropic_model_id"]
         ),
@@ -745,7 +745,7 @@ def fix_review_findings(findings: list[CodeReviewFinding]) -> PRFixResult | None
     """Run pr_fix_agent against code_reviewer's findings and return what
     it changed, or None if the crew failed to produce a result. Only
     edits files in the current working tree - never commits, pushes, or
-    opens anything itself; the calling script (sdlc/
+    opens anything itself; the calling script (req2prod/
     code_review_runner.py) owns git end to end and pushes once, after
     every attempt is done, not once per attempt."""
     inputs = {"findings": _format_findings_for_agent(findings)}
@@ -845,7 +845,7 @@ def review_ux(
         tasks_config=tasks_config,
         model=_agent_models["ux_reviewer"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        allowed_tools="Bash(python -m req2prod.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(["inspect_job_finder_page"]),
     )
 
@@ -883,7 +883,7 @@ def test_production(
         tasks_config=tasks_config,
         model=_agent_models["prod_tester"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        allowed_tools="Bash(python -m req2prod.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(["check_production_health"]),
     )
 
@@ -926,7 +926,7 @@ def rollback(
         tasks_config=tasks_config,
         model=_agent_models["rollback_agent"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m sdlc.tool_cli *)",
+        allowed_tools="Bash(python -m req2prod.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(["rollback_production"]),
     )
 
@@ -1027,7 +1027,7 @@ def _review_project_readiness_via_subscription(inputs: dict[str, str]) -> Readin
             output_model=PersonaReviewResult,
             model=_agent_models[agent_key]["subscription"],
             cwd=str(REPO_ROOT),
-            allowed_tools="Bash(python -m sdlc.tool_cli *)",
+            allowed_tools="Bash(python -m req2prod.tool_cli *)",
             extra_prompt_context=bash_tool_instructions(tool_names),
         )
         if result is None:
@@ -1141,7 +1141,7 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
                 output_model=FeatureBuildResult,
                 model=_agent_models["software_engineer"]["subscription"],
                 cwd=str(workspace_path),
-                allowed_tools="Bash(python -m sdlc.tool_cli *)",
+                allowed_tools="Bash(python -m req2prod.tool_cli *)",
                 extra_prompt_context=bash_tool_instructions(
                     [
                         "Read a file's content",
@@ -1258,7 +1258,7 @@ def fix_deploy_failure(
         tasks_config=tasks_config,
         model=_agent_models["devops_agent"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Read,Edit,Bash(python -m sdlc.tool_cli *)",
+        allowed_tools="Read,Edit,Bash(python -m req2prod.tool_cli *)",
         extra_prompt_context=bash_tool_instructions(
             ["fetch_failed_run_logs", "commit_and_push_fix", "retrigger_deploy_workflow"]
         ),

@@ -4,8 +4,8 @@ either CrewAI's normal Anthropic-API-billed path (AGENT_BACKEND=api, the
 default and the only path anywhere except this file), or a headless
 `claude -p` subprocess call authenticated via whatever Claude subscription
 is already logged in on this machine (AGENT_BACKEND=subscription) - for
-testing the full SDLC review/fix/arbiter loop without burning API credits
-on every PR. See .github/workflows/sdlc-pipeline.yml's resolve_backend job
+testing the full Req2Prod review/fix/arbiter loop without burning API credits
+on every PR. See .github/workflows/req2prod-pipeline.yml's resolve_backend job
 for how AGENT_BACKEND actually gets set in CI: only ever "subscription" on
 Marco's own self-hosted runner (his laptop), and only for pushes/PRs he
 authored himself - never for an external fork's PR, regardless of the
@@ -17,7 +17,7 @@ explicit that --bare skips the long-lived CLAUDE_CODE_OAUTH_TOKEN, but are
 unclear on whether it also skips an ordinary interactive `claude login`
 subscription session - getting that wrong would silently fall back to
 requiring ANTHROPIC_API_KEY, defeating the entire point of this module.
-Runs from the repo's own checkout instead (see SDLC.py's REPO_ROOT) - it
+Runs from the repo's own checkout instead (see Req2Prod.py's REPO_ROOT) - it
 has no CLAUDE.md to pick up unwanted context from anyway, and pr_fix_agent
 needs to be there regardless, since it edits real files in place.
 
@@ -72,19 +72,19 @@ def _clean_model_id(raw: str) -> str:
 
 def bash_tool_instructions(tool_names: list[str], workspace_dir: str | None = None) -> str:
     """A prompt block documenting the one Bash command form an agent may
-    use to reach sdlc/tool_cli.py's tools (see that module's docstring for
+    use to reach req2prod/tool_cli.py's tools (see that module's docstring for
     why - it reuses the exact same BaseTool implementations API mode
     calls directly, rather than asking the model to reinvent SSH/browser-
     automation/git-push behavior from a description). Descriptions are
     pulled from the tools' own .description - the same text CrewAI shows
     the model in API mode - so there's exactly one place each tool's
     behavior is documented, not two that could drift apart."""
-    from sdlc.tool_cli import TOOLS_BY_NAME
+    from req2prod.tool_cli import TOOLS_BY_NAME
 
     workspace_flag = f" --workspace-dir {workspace_dir}" if workspace_dir else ""
     lines = [
         "You have Bash access, restricted to exactly one command form: "
-        f"`python -m sdlc.tool_cli{workspace_flag} <tool_name> '<json kwargs>'`. "
+        f"`python -m req2prod.tool_cli{workspace_flag} <tool_name> '<json kwargs>'`. "
         "Available <tool_name> values and what each does:"
     ]
     for name in tool_names:
@@ -126,7 +126,7 @@ def run_via_subscription(
     extra_prompt_context is appended after the task description - used
     for tool-invocation instructions (see bash_tool_instructions above)
     and for threading prior tasks' results into a multi-step chain (see
-    e.g. review_project_readiness/challenge_requirement in SDLC.py),
+    e.g. review_project_readiness/challenge_requirement in Req2Prod.py),
     mirroring what CrewAI's own Task(context=[...]) chaining does in API
     mode."""
     schema = json.dumps(output_model.model_json_schema())
@@ -201,7 +201,7 @@ def run_agent(
     allowed_tools: str = "",
     extra_prompt_context: str = "",
 ) -> T | None:
-    """Single entry point every SDLC.py stage function routes through:
+    """Single entry point every Req2Prod.py stage function routes through:
     AGENT_BACKEND=subscription runs run_via_subscription above, anything
     else (including unset) runs the given CrewAI kickoff callable exactly
     as before - same try/except-return-None contract either way, so

@@ -5,7 +5,7 @@ software_architect over a single feature idea, saved as one JSON file
 so Marco can resume a past conversation the same way Claude Code lets
 you pick a session back up.
 
-Kept separate from sdlc/SDLC.py (which owns the actual agent/crew
+Kept separate from req2prod/Req2Prod.py (which owns the actual agent/crew
 logic) the same way reporting.py is kept separate from job_search.py -
 this file only reads and writes session files, it never talks to
 CrewAI.

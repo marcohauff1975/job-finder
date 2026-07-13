@@ -60,7 +60,7 @@ TIER_POWER = "power"
 VALID_TIERS = (TIER_FREE, TIER_PAID, TIER_POWER)
 
 # Throwaway accounts used by automated/manual testing (the ux_reviewer
-# SDLC agent, local QA, this session's own scratch testing) all use the
+# Req2Prod agent, local QA, this session's own scratch testing) all use the
 # @example.com domain - forcing them onto the free tier regardless of
 # whatever's stored keeps testing from silently running up paid-tier
 # model costs.

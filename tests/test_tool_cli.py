@@ -1,5 +1,5 @@
 """
-Unit tests for sdlc/tool_cli.py - the CLI shim that lets AGENT_BACKEND=
+Unit tests for req2prod/tool_cli.py - the CLI shim that lets AGENT_BACKEND=
 subscription's `claude -p` calls reach the same BaseTool implementations
 API mode uses. No test here makes a real network call, touches a real
 file outside tmp_path, or spawns a real `claude` process - tool_cli.py's
@@ -10,7 +10,7 @@ test_backend.py.
 
 import json
 
-from sdlc import tool_cli
+from req2prod import tool_cli
 
 
 class TestMainArgParsing:

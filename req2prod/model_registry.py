@@ -1,10 +1,10 @@
 """
-Per-agent Claude model assignment for the SDLC agents, editable live from
+Per-agent Claude model assignment for the Req2Prod agents, editable live from
 the admin "AI Models" tab in streamlit_app.py.
 
 The current assignment per agent lives in config/agent_models.json (data,
-mutable at runtime) rather than hardcoded in SDLC.py. set_agent_model()
-both persists a change there and, if sdlc.SDLC has already been imported
+mutable at runtime) rather than hardcoded in Req2Prod.py. set_agent_model()
+both persists a change there and, if req2prod.Req2Prod has already been imported
 in this process, mutates the already-constructed Agent object directly
 (CrewAI's Agent.llm isn't frozen) - so a change made in the admin UI takes
 effect on that agent's next run immediately, no app restart needed.
@@ -24,7 +24,7 @@ MODEL_DISPLAY_NAMES = {
     "anthropic/claude-opus-4-8": "Opus 4.8 (strongest, slowest/priciest)",
 }
 
-# Called only from a Claude Code session running SDLC.py's
+# Called only from a Claude Code session running Req2Prod.py's
 # technology_excellence_crew (the pre-publish readiness review) - never
 # invoked by the deployed Streamlit app itself, unlike every other agent
 # below. Kept separate so the admin "AI Models" tab can show them in
@@ -336,7 +336,7 @@ def set_agent_model(agent_key: str, model_id: str, backend: str) -> None:
     """Persists the change for the given backend ("api" or
     "subscription") and, for "api" only, swaps the already-constructed
     Agent's .llm in place (see module docstring) - there's no equivalent
-    constructed object for "subscription" to mutate, since sdlc/backend.py
+    constructed object for "subscription" to mutate, since req2prod/backend.py
     reads config/agent_models.json fresh on every call rather than
     caching a model at construction time, so persisting is already
     enough for that backend to pick the change up on its next call. Two
@@ -345,7 +345,7 @@ def set_agent_model(agent_key: str, model_id: str, backend: str) -> None:
     change getting silently lost) - _LOCK serializes that. It does NOT
     protect a crew that's already mid-run elsewhere in the process from
     picking up the new model on its next step: agents are process-wide
-    singletons (see sdlc/SDLC.py), by the same design as local_tester
+    singletons (see req2prod/Req2Prod.py), by the same design as local_tester
     being reused across local_test_crew/performance_test_crew, so a
     change here is inherently visible to any crew using that agent,
     in-flight or not - that's the deliberate tradeoff of "takes effect
@@ -363,8 +363,8 @@ def set_agent_model(agent_key: str, model_id: str, backend: str) -> None:
 
         import sys
 
-        sdlc_module = sys.modules.get("sdlc.SDLC")
-        if sdlc_module is not None:
-            agent = sdlc_module.AGENTS_BY_KEY.get(agent_key)
+        req2prod_module = sys.modules.get("req2prod.Req2Prod")
+        if req2prod_module is not None:
+            agent = req2prod_module.AGENTS_BY_KEY.get(agent_key)
             if agent is not None:
                 agent.llm = LLM(model=model_id)

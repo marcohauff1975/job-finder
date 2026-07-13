@@ -1,14 +1,14 @@
 """
 SSH/curl-backed tools that let prod_tester and rollback_agent actually
 act on the production Lightsail instance, instead of only reasoning
-over text passed to them - closes the gap noted in sdlc/SDLC.py for
+over text passed to them - closes the gap noted in req2prod/Req2Prod.py for
 these two agents (ux_reviewer already has an equivalent for the app's
 front end, via tools/ux_inspector.py).
 
 Neither tool fetches or handles AWS/SSH credentials itself - both
 expect a short-lived SSH private key to already exist on disk at
 key_path, fetched by whatever is driving the crew (see
-.github/workflows/sdlc-pipeline.yml). This keeps credential handling
+.github/workflows/req2prod-pipeline.yml). This keeps credential handling
 entirely in the calling workflow, not in agent-callable code.
 """
 

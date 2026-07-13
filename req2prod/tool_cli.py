@@ -6,7 +6,7 @@ from a text description - correctness parity for tools too stateful or
 complex to safely reinvent (SSH to production, headless-browser
 automation, git/PR operations), not just a prompt-writing exercise.
 
-Usage: python -m sdlc.tool_cli [--workspace-dir PATH] <tool_name> '<json kwargs>'
+Usage: python -m req2prod.tool_cli [--workspace-dir PATH] <tool_name> '<json kwargs>'
 Prints the tool's own string result to stdout and exits 0, or prints an
 error to stderr and exits 1. <tool_name> must be one of TOOLS_BY_NAME
 below - there is no way to reach an arbitrary import path from here, so
@@ -16,7 +16,7 @@ scoping), never broader than what it already has in API mode.
 
 The workspace-scoped tools (software_engineer's file tools, plus
 create_feature_branch_and_open_pr) resolve paths against
-sdlc.tools.build_workspace's workspace_dir() ContextVar, which only
+req2prod.tools.build_workspace's workspace_dir() ContextVar, which only
 exists inside a live `with build_workspace():` block. That block wraps
 one crewai kickoff() call in API mode; here it instead wraps one
 subprocess invocation of this script, so --workspace-dir sets the same
@@ -31,20 +31,20 @@ import json
 import sys
 from pathlib import Path
 
-from sdlc.tools.aws_audit import AWSLiveSetupTool
-from sdlc.tools.build_workspace import (
+from req2prod.tools.aws_audit import AWSLiveSetupTool
+from req2prod.tools.build_workspace import (
     WorkspaceEditTool,
     WorkspaceFileReadTool,
     WorkspaceFileWriterTool,
     _workspace_dir,
 )
-from sdlc.tools.dependency_check import AnthropicModelCheckTool, PackageVersionCheckTool
-from sdlc.tools.devops_ops import CommitAndPushFixTool, FetchFailedRunLogsTool, RetriggerWorkflowTool
-from sdlc.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
-from sdlc.tools.github_audit import GitHubLiveRepoCheckTool
-from sdlc.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
-from sdlc.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
-from sdlc.tools.ux_inspector import UXPageInspectorTool
+from req2prod.tools.dependency_check import AnthropicModelCheckTool, PackageVersionCheckTool
+from req2prod.tools.devops_ops import CommitAndPushFixTool, FetchFailedRunLogsTool, RetriggerWorkflowTool
+from req2prod.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
+from req2prod.tools.github_audit import GitHubLiveRepoCheckTool
+from req2prod.tools.prod_ops import ProdHealthCheckTool, ProdRollbackTool
+from req2prod.tools.repo_audit import GitFileHistoryTool, GitRepoStatusTool, RepoFileReadTool
+from req2prod.tools.ux_inspector import UXPageInspectorTool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -72,7 +72,7 @@ TOOLS_BY_NAME = {
         WorkspaceEditTool(),
         GitRepoStatusTool(),
         GitFileHistoryTool(),
-        # Same allowed_roots as SDLC.py's _readiness_tools - the Technology
+        # Same allowed_roots as Req2Prod.py's _readiness_tools - the Technology
         # Excellence panel reads across both Job Finder repos (this one and
         # its sibling crewai-infra), not just this checkout.
         RepoFileReadTool(allowed_roots=[str(REPO_ROOT.parent)]),
@@ -92,7 +92,7 @@ def main(argv: list[str]) -> int:
 
     if len(args) != 2:
         print(
-            "usage: python -m sdlc.tool_cli [--workspace-dir PATH] <tool_name> '<json kwargs>'",
+            "usage: python -m req2prod.tool_cli [--workspace-dir PATH] <tool_name> '<json kwargs>'",
             file=sys.stderr,
         )
         return 1

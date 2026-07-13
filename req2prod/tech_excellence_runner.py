@@ -11,10 +11,10 @@ actually sees. Not for an arbitrary/unrelated repo: the panel's
 personas and tools are written against this specific project's stack.
 
 Usage:
-    python -m sdlc.tech_excellence_runner [app_repo_path] [infra_repo_path]
+    python -m req2prod.tech_excellence_runner [app_repo_path] [infra_repo_path]
 
 Both default to JOB_FINDER_APP_REPO_PATH / JOB_FINDER_INFRA_REPO_PATH
-in sdlc/SDLC.py (this repo, and its "../crewai-infra" sibling) - only
+in req2prod/Req2Prod.py (this repo, and its "../crewai-infra" sibling) - only
 pass explicit paths if your checkouts live somewhere else.
 
 Exit code is 0 only if the panel's synthesized verdict is
@@ -25,7 +25,7 @@ import os
 import sys
 from datetime import date
 
-from sdlc.SDLC import (
+from req2prod.Req2Prod import (
     JOB_FINDER_APP_REPO_PATH,
     JOB_FINDER_INFRA_REPO_PATH,
     LINKEDIN_ACTIVITY_LOG_DIR,

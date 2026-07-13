@@ -1,7 +1,7 @@
 """
 Driver for the "AI prod flow" GitHub Actions workflow - calls
 test_production() and, if it fails, rollback(), so prod_tester and
-rollback_agent (using their real tools in sdlc/tools/prod_ops.py)
+rollback_agent (using their real tools in req2prod/tools/prod_ops.py)
 make the verify/rollback decision themselves, instead of plain bash
 doing it (compare .github/workflows/deploy-to-prod.yml, which is
 bash/curl only).
@@ -22,7 +22,7 @@ succeed even though production was returned to a working state.
 import os
 import sys
 
-from sdlc.SDLC import rollback, test_production
+from req2prod.Req2Prod import rollback, test_production
 
 
 def _require(name: str) -> str:

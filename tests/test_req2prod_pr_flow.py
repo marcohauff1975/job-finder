@@ -1,5 +1,5 @@
 """
-Unit tests for sdlc_pr_flow.py's PR-fetching logic - specifically that
+Unit tests for req2prod_pr_flow.py's PR-fetching logic - specifically that
 it correctly distinguishes pr_fix_agent/pr_arbiter activity from plain
 code_reviewer activity using only real GitHub data (a commit-message
 prefix and a review-body prefix), since neither of those two agents
@@ -11,7 +11,7 @@ calls or GITHUB_ACTIONS_TOKEN needed.
 
 import pytest
 
-import sdlc_pr_flow as flow
+import req2prod_pr_flow as flow
 
 
 @pytest.fixture(autouse=True)

@@ -20,7 +20,7 @@ so a bad run can never leave stale broken state behind, and the live
 app directory is never touched at all.
 
 Threading the workspace path into the file tools: software_engineer's
-Agent object (and its tools) are built once at import time in SDLC.py,
+Agent object (and its tools) are built once at import time in Req2Prod.py,
 but the workspace only exists for the duration of one build_feature()
 call - so the path can't be baked into the tools at construction time.
 Same problem ai_viewer.py solves for carrying Streamlit's

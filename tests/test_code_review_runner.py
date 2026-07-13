@@ -1,5 +1,5 @@
 """
-Unit tests for sdlc/code_review_runner.py's orchestration logic - the
+Unit tests for req2prod/code_review_runner.py's orchestration logic - the
 review/fix loop and the pr_arbiter escalation - mocked all the way
 down to review_code/fix_review_findings/arbiter_review and every git/gh
 subprocess call, since a real run costs real API credits and touches a
@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from sdlc import code_review_runner as runner
-from sdlc.SDLC import ArbiterVerdict, CodeReviewFinding, CodeReviewResult, PRFixResult
+from req2prod import code_review_runner as runner
+from req2prod.Req2Prod import ArbiterVerdict, CodeReviewFinding, CodeReviewResult, PRFixResult
 
 FAKE_FINDING = CodeReviewFinding(file="app.py", line="10", risk="uses eval() on user input")
 
@@ -281,7 +281,7 @@ class TestCrewFailures:
 
 class TestReviewCodeTransientRetry:
     """A None from review_code() means an empty LLM response or a caught
-    crew exception (see sdlc/SDLC.py's review_code) - a known intermittent
+    crew exception (see req2prod/Req2Prod.py's review_code) - a known intermittent
     flake unrelated to the diff itself, so it must not crash the whole run
     on the very first hiccup the way this exact bug did against PR #21."""
 

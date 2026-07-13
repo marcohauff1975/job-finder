@@ -1,11 +1,11 @@
 """
-Admin UI for the Software Delivery product's own tabs on the "AI Models"/
-"SDLC Pipeline"/"Request a New Feature" pages in streamlit_app.py.
+Admin UI for the Req2Prod product's own tabs on the "AI Models"/
+"Req2Prod Pipeline"/"Request a New Feature" pages in streamlit_app.py.
 
 Pulled out of streamlit_app.py so that file's admin section reflects the
 actual product boundary already true at runtime: this code only ever
-touches sdlc/*, sdlc_agent_backend_mode.py, sdlc_agent_steps.py,
-sdlc_deploy_mode.py, and sdlc_pr_flow.py - never the Job Finder product's
+touches req2prod/*, req2prod_agent_backend_mode.py, req2prod_agent_steps.py,
+req2prod_deploy_mode.py, and req2prod_pr_flow.py - never the Job Finder product's
 own code (auth.py/job_search.py/reporting.py, which streamlit_app.py's
 Overview tab and Job Finder path still own directly - see
 jobfinder_admin.py for the Overview tab's equivalent). Pure extraction:
@@ -13,9 +13,9 @@ every function body below is unchanged from streamlit_app.py, just
 relocated (and in two cases wrapped in a def or renamed - see each
 function's own note).
 
-First file inside sdlc/ to import a top-level sibling module
-(sdlc_agent_backend_mode, sdlc_agent_steps, sdlc_deploy_mode,
-sdlc_pr_flow) - that's fine, pytest.ini's pythonpath=. and Streamlit's
+First file inside req2prod/ to import a top-level sibling module
+(req2prod_agent_backend_mode, req2prod_agent_steps, req2prod_deploy_mode,
+req2prod_pr_flow) - that's fine, pytest.ini's pythonpath=. and Streamlit's
 own sys.path both already make this resolvable the same way
 streamlit_app.py always has; just a new pattern for this package, not a
 new risk.
@@ -26,13 +26,13 @@ import time
 
 import streamlit as st
 
-from sdlc.SDLC import (
+from req2prod.Req2Prod import (
     ArchitectureDirectionResult,
     FeatureRequirementsResult,
     build_feature,
     challenge_requirement,
 )
-from sdlc.model_registry import (
+from req2prod.model_registry import (
     AGENT_DISPLAY_NAMES,
     MODEL_DISPLAY_NAMES,
     RECOMMENDATIONS,
@@ -40,17 +40,17 @@ from sdlc.model_registry import (
     load_agent_models,
     set_agent_model,
 )
-from sdlc.requirements_sessions import (
+from req2prod.requirements_sessions import (
     delete_session,
     list_sessions,
     load_session,
     new_session_id,
     save_session,
 )
-from sdlc_agent_backend_mode import get_agent_backend, set_agent_backend
-from sdlc_agent_steps import get_agent_activity
-from sdlc_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
-from sdlc_pr_flow import get_latest_pr_flow, render_pr_flow_svg
+from req2prod_agent_backend_mode import get_agent_backend, set_agent_backend
+from req2prod_agent_steps import get_agent_activity
+from req2prod_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
+from req2prod_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 
 
 def _run_with_retry(func, *args, retries=1, **kwargs):
@@ -73,7 +73,7 @@ def _run_with_retry(func, *args, retries=1, **kwargs):
 
 
 def _format_pm_result(result) -> str:
-    """Renders a FeatureRequirementsResult (see sdlc/SDLC.py) as the
+    """Renders a FeatureRequirementsResult (see req2prod/Req2Prod.py) as the
     Product Manager's chat bubble content."""
     lines = ["**Senior Product Manager**", "", f"**User story:** {result.user_story}"]
     lines.append("")
@@ -89,7 +89,7 @@ def _format_pm_result(result) -> str:
 
 
 def _format_architect_result(result) -> str:
-    """Renders an ArchitectureDirectionResult (see sdlc/SDLC.py) as the
+    """Renders an ArchitectureDirectionResult (see req2prod/Req2Prod.py) as the
     Software Architect's chat bubble content."""
     lines = ["**Senior Software Architect**", ""]
     lines.append(
@@ -118,7 +118,7 @@ def _format_architect_result(result) -> str:
 
 
 def _format_engineer_result(result) -> str:
-    """Renders a FeatureBuildResult (see sdlc/SDLC.py) as the Software
+    """Renders a FeatureBuildResult (see req2prod/Req2Prod.py) as the Software
     Engineer's chat bubble content."""
     lines = ["**Senior Software Engineer**", "", f"**Branch:** `{result.branch_name}`"]
     if result.pr_url:
@@ -185,10 +185,10 @@ def _format_conversation_for_agents(messages: list[dict]) -> str:
 def render_requirements_tab() -> None:
     """Admin-only sub-page where Marco types a raw feature idea and gets
     it challenged by the product_manager and software_architect agents
-    (sdlc/SDLC.py's challenge_requirement) - chat layout modeled on
+    (req2prod/Req2Prod.py's challenge_requirement) - chat layout modeled on
     Claude Code's own UI: message history on top, input pinned to the
     bottom, sessions managed from the sidebar. Each session is a JSON
-    file under data/requirements_sessions/ (sdlc/requirements_sessions.py).
+    file under data/requirements_sessions/ (req2prod/requirements_sessions.py).
 
     Renamed from streamlit_app.py's _render_requirements_challenge_page -
     body otherwise unchanged, including the [DIAG] print statements and
@@ -429,12 +429,12 @@ def render_requirements_tab() -> None:
         st.rerun()
 
 
-def render_sdlc_pipeline_tab() -> None:
-    """The "SDLC Pipeline" admin tab: a live, read-only view of the most
+def render_req2prod_pipeline_tab() -> None:
+    """The "Req2Prod Pipeline" admin tab: a live, read-only view of the most
     recently active pull request's real journey through the review
     pipeline, plus live agent activity for the deploy job and
     devops_agent's auto-fix runs. Mechanical extraction of
-    streamlit_app.py's former `with tab_sdlc:` body - no logic changes."""
+    streamlit_app.py's former `with tab_req2prod:` body - no logic changes."""
     st.caption(
         "Live view of the most recently active pull request's real "
         "journey through the review pipeline - Merge Request, each "
@@ -452,7 +452,7 @@ def render_sdlc_pipeline_tab() -> None:
     # it there forces Streamlit to cancel that run before it can
     # save its result - exactly what happened in production. A
     # manual button avoids that risk entirely.
-    if st.button("🔄 Refresh", key="sdlc_flow_refresh"):
+    if st.button("🔄 Refresh", key="req2prod_flow_refresh"):
         st.rerun()
 
     try:
@@ -470,7 +470,7 @@ def render_sdlc_pipeline_tab() -> None:
         st.markdown(f"**#{pr_info['number']}** — {pr_info['title']} ([view PR]({pr_info['url']}))")
         st.markdown(render_pr_flow_svg(stages), unsafe_allow_html=True)
 
-    st.markdown("#### Live SDLC agent activity")
+    st.markdown("#### Live Req2Prod agent activity")
     st.caption(
         "Real-time step status for prod_tester/rollback_agent (inside "
         "the deploy job) and devops_agent's own auto-fix runs. GitHub "
@@ -512,7 +512,7 @@ def render_sdlc_pipeline_tab() -> None:
 def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> None:
     """Renders one editable Agent/API model/Subscription model/Why table
     for the given agent_keys (see AGENT_DISPLAY_NAMES in
-    sdlc/model_registry.py) on the admin "AI Models" tab, with its own
+    req2prod/model_registry.py) on the admin "AI Models" tab, with its own
     save button. Each agent has two independent model assignments - one
     per backend (see RECOMMENDATIONS' own module comment for why the two
     recommendations differ: cost is a real constraint on the API, not on
@@ -522,7 +522,7 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
     current_models = load_agent_models()
     display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
 
-    # Every agent now routes through sdlc/backend.py's run_agent(), which
+    # Every agent now routes through req2prod/backend.py's run_agent(), which
     # checks this exact env var in whatever process actually runs it - so
     # this reflects THIS process's own environment, not necessarily the
     # AGENT_BACKEND GitHub Actions repo variable. They're deliberately
@@ -592,10 +592,10 @@ def render_ai_models_tab() -> None:
     streamlit_app.py's former `with tab_models:` body - no logic
     changes."""
     st.caption(
-        "Every SDLC agent has two independent model assignments "
+        "Every Req2Prod agent has two independent model assignments "
         "below - one for the API, one for a Claude subscription - "
         "each with its own recommendation (see "
-        "sdlc/model_registry.py): cost per call is a real "
+        "req2prod/model_registry.py): cost per call is a real "
         "constraint on the API, but not on a flat-rate "
         "subscription, so the two don't always agree. Changes "
         "apply immediately and are saved so they survive the next "
@@ -628,7 +628,7 @@ def render_ai_models_tab() -> None:
             "🧑‍💻 Run CI agents on Marco's Claude subscription",
             value=is_subscription,
             key="agent_backend_toggle",
-            help="Off (default): every SDLC agent in GitHub Actions "
+            help="Off (default): every Req2Prod agent in GitHub Actions "
             "runs against the metered Anthropic API, as normal. On: "
             "those same agents run instead as local `claude -p` "
             "calls on a self-hosted runner (Marco's own laptop, "
@@ -651,8 +651,8 @@ def render_ai_models_tab() -> None:
         key for key in AGENT_DISPLAY_NAMES if key not in TECH_EXCELLENCE_AGENT_KEYS
     ]
 
-    st.markdown("#### SDLC pipeline agents")
-    st.caption("Called by this app itself, as part of its own SDLC pipeline.")
+    st.markdown("#### Req2Prod pipeline agents")
+    st.caption("Called by this app itself, as part of its own Req2Prod pipeline.")
     _render_agent_model_table(app_agent_keys, "app_agents")
 
     st.divider()
@@ -660,7 +660,7 @@ def render_ai_models_tab() -> None:
     st.markdown("#### Technology Excellence panel")
     st.caption(
         "Only ever invoked from a Claude Code session running the "
-        "pre-publish readiness review (sdlc/SDLC.py's "
+        "pre-publish readiness review (req2prod/Req2Prod.py's "
         "technology_excellence_crew) - never called by this "
         "deployed app itself."
     )

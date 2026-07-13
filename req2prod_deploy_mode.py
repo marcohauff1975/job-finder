@@ -1,6 +1,6 @@
 """
 Toggle for AUTO_DEPLOY_ON_MERGE, the GitHub repo variable that
-.github/workflows/sdlc-pipeline.yml's deploy job checks: "false"
+.github/workflows/req2prod-pipeline.yml's deploy job checks: "false"
 (default, "regular development mode") means deploying to prod after a
 merge still requires a manual "Run workflow" click; "true" ("demo
 mode") means merging a PR into main auto-deploys straight to
@@ -13,8 +13,8 @@ authenticated.
 
 Needs its own .env var, GITHUB_VARIABLES_TOKEN - a separate
 fine-grained token scoped to just "Actions: Read and write" on this
-repo, rather than reusing GITHUB_ACTIONS_TOKEN (sdlc_pr_flow.py,
-sdlc_agent_steps.py), which is scoped narrower for its own read-only
+repo, rather than reusing GITHUB_ACTIONS_TOKEN (req2prod_pr_flow.py,
+req2prod_agent_steps.py), which is scoped narrower for its own read-only
 PR/workflow-status use and shouldn't be broadened just for this.
 """
 

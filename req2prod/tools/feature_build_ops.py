@@ -28,7 +28,7 @@ CLI - discovered (2026-07-10) that `gh` isn't even installed on the
 production server, which made every otherwise-successful push end in
 a confusing "[Errno 2] No such file or directory: 'gh'" failure. Using
 the REST API directly means this doesn't depend on `gh` being present
-at all, the same reasoning as sdlc_deploy_mode.py's
+at all, the same reasoning as req2prod_deploy_mode.py's
 GITHUB_VARIABLES_TOKEN.
 """
 
@@ -37,7 +37,7 @@ import os
 import requests
 from crewai.tools import BaseTool
 
-from sdlc.tools.build_workspace import _GITHUB_REPO, git_askpass_env, run_in_workspace, workspace_dir
+from req2prod.tools.build_workspace import _GITHUB_REPO, git_askpass_env, run_in_workspace, workspace_dir
 
 _PROTECTED_BRANCHES = {"main", "master"}
 

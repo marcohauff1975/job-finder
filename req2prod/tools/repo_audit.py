@@ -1,6 +1,6 @@
 """
 Read-only tools that let the Technology Excellence panel (see
-technology_excellence_* agents in sdlc/SDLC.py) actually inspect a
+technology_excellence_* agents in req2prod/Req2Prod.py) actually inspect a
 repo's real git state - tracked files, commit history, and whether a
 given path was ever committed - instead of only reasoning over a
 directory listing. Every command here is a fixed, read-only git

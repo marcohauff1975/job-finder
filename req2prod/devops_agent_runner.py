@@ -16,7 +16,7 @@ import os
 import sys
 
 from notify import send_devops_fix_notification
-from sdlc.SDLC import fix_deploy_failure
+from req2prod.Req2Prod import fix_deploy_failure
 
 
 def _require(name: str) -> str:

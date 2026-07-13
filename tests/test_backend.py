@@ -1,5 +1,5 @@
 """
-Unit tests for sdlc/backend.py's dual-backend dispatch. subprocess.run is
+Unit tests for req2prod/backend.py's dual-backend dispatch. subprocess.run is
 mocked everywhere - no test in this file ever spawns a real `claude`
 process, so running the suite never costs a cent of subscription usage or
 touches the filesystem outside what a test explicitly sets up.
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from sdlc import backend
+from req2prod import backend
 
 
 class FakeVerdict(BaseModel):
@@ -45,7 +45,7 @@ class TestBashToolInstructions:
     def test_lists_each_tool_with_its_real_description(self):
         text = backend.bash_tool_instructions(["check_pypi_package_version"])
 
-        from sdlc.tool_cli import TOOLS_BY_NAME
+        from req2prod.tool_cli import TOOLS_BY_NAME
 
         assert "check_pypi_package_version" in text
         assert TOOLS_BY_NAME["check_pypi_package_version"].description in text
@@ -53,7 +53,7 @@ class TestBashToolInstructions:
     def test_documents_the_exact_command_form(self):
         text = backend.bash_tool_instructions(["check_anthropic_model_id"])
 
-        assert "python -m sdlc.tool_cli" in text
+        assert "python -m req2prod.tool_cli" in text
         assert "<tool_name>" in text
         assert "--workspace-dir" not in text
 

@@ -1,5 +1,5 @@
 """
-Live-ish view of SDLC agent activity: the deploy job's prod_tester/
+Live-ish view of Req2Prod agent activity: the deploy job's prod_tester/
 rollback_agent, and devops_agent's own auto-fix runs. Shows the most
 recent run of each agent-driving workflow, with per-step status
 (queued/in_progress/completed) refreshed live, plus the actual CrewAI
@@ -17,11 +17,11 @@ not the moment the specific agent-running step within it ends.
 The trace is found by content (CrewAI's own distinctive "Agent
 Started" box), not by step name - a step's declared name (e.g. "Run
 devops_agent") and its actual shell command in the log (e.g. `python
--m sdlc.devops_agent_runner`) aren't textually related, so name-based
+-m req2prod.devops_agent_runner`) aren't textually related, so name-based
 matching isn't reliable.
 
 Read-only, needs GITHUB_ACTIONS_TOKEN (same .env pattern as
-sdlc_pr_flow.py); no crewai/Anthropic import, so it stays out of the
+req2prod_pr_flow.py); no crewai/Anthropic import, so it stays out of the
 production process's dependency footprint.
 """
 
@@ -35,7 +35,7 @@ GITHUB_REPO = "marcohauff1975/job-finder"
 
 # Workflow file -> the job within it whose steps/log we show.
 AGENT_WORKFLOWS = {
-    "sdlc-pipeline.yml": "deploy",
+    "req2prod-pipeline.yml": "deploy",
     "devops-agent.yml": "respond",
 }
 
@@ -89,7 +89,7 @@ def _find_crewai_trace(full_log: str) -> str | None:
     actually contains CrewAI's own verbose output - found by content
     (the distinctive "🤖 Agent Started" box), not by step name, since a
     step's declared name and its actual shell command (e.g. "Run
-    devops_agent" the step vs. `python -m sdlc.devops_agent_runner` the
+    devops_agent" the step vs. `python -m req2prod.devops_agent_runner` the
     command) aren't textually related. None if no segment has one
     (e.g. the step that runs the crew was skipped)."""
     lines = full_log.splitlines()
