@@ -13,7 +13,30 @@ an `st.expander` rendered inside the "Request a New Feature" tab itself
 properly scoped to its tab's DOM subtree, unlike st.sidebar.
 """
 
+import sqlite3
+
+import pytest
 from streamlit.testing.v1 import AppTest
+
+import auth
+import reporting
+
+
+@pytest.fixture
+def db(tmp_path, monkeypatch):
+    """A fresh SQLite file with auth.py's and reporting.py's schemas
+    applied, with reporting.DB_PATH pointed at it for the duration of
+    the test, so the admin path's get_report() call doesn't hit the
+    real data/auth.db."""
+    db_path = tmp_path / "test_auth.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(auth.SCHEMA)
+    conn.executescript(reporting.SCHEMA)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(reporting, "DB_PATH", db_path)
+    return db_path
 
 
 def _run_admin_app():
@@ -25,13 +48,13 @@ def _run_admin_app():
 
 
 class TestAdminSidebarOnlyOnRequestNewFeature:
-    def test_sidebar_is_empty_on_the_default_jobfinder_admin_tab(self):
+    def test_sidebar_is_empty_on_the_default_jobfinder_admin_tab(self, db):
         at = _run_admin_app()
 
         assert not at.exception
         assert len(at.sidebar) == 0
 
-    def test_top_level_tabs_render(self):
+    def test_top_level_tabs_render(self, db):
         at = _run_admin_app()
 
         assert [t.proto.label for t in at.tabs] == ["Jobfinder Admin", "Req2Prod", "AI Models", "CTO Cockpit"]
