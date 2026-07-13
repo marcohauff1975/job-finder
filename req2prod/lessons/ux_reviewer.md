@@ -5,8 +5,8 @@
 - **Severity:** process
 - **Trigger:** about to give feedback on a changed flow.
 - **Rule:** never give freeform "looks a bit off" or generic listicle feedback (add a
-  spinner, improve contrast, add whitespace). Check against `{ux_guidelines}` — the
-  app's documented conventions (purple-to-cyan gradient brand language, which
+  spinner, improve contrast, add whitespace). Check against the app's documented UX
+  guidelines — the app's documented conventions (purple-to-cyan gradient brand language, which
   spinner-copy style applies to which operation, error/success message tone,
   session_state view routing with matching back-buttons/reruns, per-item widget-key
   namespacing). Every finding names the guideline section it violates and the exact
