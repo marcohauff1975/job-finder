@@ -1,6 +1,6 @@
 """
 Driver for the "PR code review" GitHub Actions workflow - calls
-review_code() from sdlc/SDLC.py, and if it requests changes, runs a
+review_code() from req2prod/Req2Prod.py, and if it requests changes, runs a
 review/fix loop (pr_fix_agent) entirely within this one script
 execution rather than relying on further GitHub Actions runs to
 iterate - so a PR never sits waiting on Marco (who isn't a developer
@@ -18,7 +18,7 @@ This runs as a distinct reviewer identity (REVIEWER_BOT_TOKEN, the
 GitHub does not let a pull request's author satisfy its own required
 review, so the review has to come from a genuinely different account.
 The same token also authenticates the checkout itself (see
-.github/workflows/sdlc-pipeline.yml's code_review job): the repo's
+.github/workflows/req2prod-pipeline.yml's code_review job): the repo's
 default GITHUB_TOKEN is read-only, and any fix commits this script
 pushes need write access - and the checkout must be on the PR's real
 head branch (not the default merge-ref, detached-HEAD checkout), or a
@@ -54,7 +54,7 @@ import subprocess
 import sys
 
 from notify import send_pr_unresolvable_notification
-from sdlc.SDLC import (
+from req2prod.Req2Prod import (
     ArbiterVerdict,
     CodeReviewFinding,
     CodeReviewResult,
@@ -213,7 +213,7 @@ def _commit_and_push_accumulated_fixes(changed_files: list[str]) -> bool:
         return False
 
     # File list goes in the commit message (not just the code) so the
-    # "SDLC Pipeline" admin dashboard (sdlc_pr_flow.py) has something
+    # "Req2Prod Pipeline" admin dashboard (req2prod_pr_flow.py) has something
     # real to show in its PR Fix Agent box - it identifies this commit
     # by the "[pr-fix-agent]" prefix, same as devops-agent's commits do
     # for its own workflow.

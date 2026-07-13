@@ -1,6 +1,6 @@
 """
 Read-only GitHub inspection for the CTO and Security Engineer personas
-(see technology_excellence_* agents in sdlc/SDLC.py) - checks what a
+(see technology_excellence_* agents in req2prod/Req2Prod.py) - checks what a
 real visitor/GitHub itself actually sees for a repo, not just its local
 git state. Local git state alone can't tell you the repo is still
 private, or that GitHub's own Dependabot/secret-scanning are sitting
@@ -20,7 +20,7 @@ from crewai.tools import BaseTool
 
 
 def _run(args: list[str], cwd: str, timeout: int = 30) -> tuple[int, str, str]:
-    """Same cwd-doesn't-exist handling as sdlc/tools/repo_audit.py's
+    """Same cwd-doesn't-exist handling as req2prod/tools/repo_audit.py's
     _run - a bad repo_path becomes a normal (1, "", error) tuple rather
     than an unhandled OSError."""
     try:

@@ -1,7 +1,7 @@
 """
 Playwright-backed tool that lets the ux_reviewer agent actually drive
 the running Job Finder app, instead of only reasoning over text - see
-the "Not yet wired up" note in sdlc/SDLC.py this closes for ux_reviewer
+the "Not yet wired up" note in req2prod/Req2Prod.py this closes for ux_reviewer
 specifically (code_reviewer/local_tester/prod_tester/rollback_agent
 still have no tools).
 

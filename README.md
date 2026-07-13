@@ -2,9 +2,9 @@
 
 **An AI-powered job search platform, built and operated by a fleet of purpose-built AI agents — not just using one.**
 
-Job Finder helps a user search live job postings, research the hiring company, and get a resume automatically tailored to a specific role. What makes this project worth a second look isn't just the product: the entire software delivery lifecycle around it — code review, testing, deployment, rollback, infrastructure, and security auditing — is itself run by a coordinated system of specialized AI agents, each with its own model tier, tools, and accountability.
+Job Finder helps a user search live job postings, research the hiring company, and get a resume automatically tailored to a specific role. What makes this project worth a second look isn't just the product: the entire Req2Prod lifecycle around it — code review, testing, deployment, rollback, infrastructure, and security auditing — is itself run by a coordinated system of specialized AI agents, each with its own model tier, tools, and accountability.
 
-![SDLC Pipeline](https://github.com/marcohauff1975/job-finder/actions/workflows/sdlc-pipeline.yml/badge.svg)
+![Req2Prod Pipeline](https://github.com/marcohauff1975/job-finder/actions/workflows/req2prod-pipeline.yml/badge.svg)
 
 ---
 
@@ -15,7 +15,7 @@ Job Finder helps a user search live job postings, research the hiring company, a
 - **Resume Tailor agent** — combines a user's uploaded resume, a specific job posting, and that research into a tailored resume, downloadable in multiple formats.
 - **Multi-user by design** — every user's resumes, search history, and quotas are isolated under their own directory; no shared state between accounts.
 
-## The part most projects don't have: an AI-run SDLC
+## The part most projects don't have: an AI-run Req2Prod
 
 Job Finder's own development pipeline is staffed by 15 named CrewAI agents across two systems — not a single "review my code" prompt, but specialists with distinct roles, tools, and model tiers matched to how much judgment and blast radius each one carries:
 

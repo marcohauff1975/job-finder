@@ -1,6 +1,6 @@
 """
 Live flowchart of the most recently active pull request's real journey
-through the SDLC pipeline: Merge Request -> Code Review (one box per
+through the Req2Prod pipeline: Merge Request -> Code Review (one box per
 real review round, looping back on "changes requested") -> Push to
 Master once merged -> Push to Prod -> Test in Prod, branching down to
 Invoke DevOps Agent if the deploy/test fails. Read-only, needs
@@ -9,7 +9,7 @@ SERPER_API_KEY); no crewai/Anthropic import, so it stays out of the
 production process's dependency footprint.
 
 Code review and deploy are now one combined GitHub Actions workflow
-(.github/workflows/sdlc-pipeline.yml) - code_review job on
+(.github/workflows/req2prod-pipeline.yml) - code_review job on
 pull_request, deploy job on push to main (i.e. right after a merge) -
 so this diagram can follow a single PR all the way through production
 instead of stopping at the merge, the way it used to when the two were
@@ -23,14 +23,14 @@ import requests
 import streamlit as st
 
 GITHUB_REPO = "marcohauff1975/job-finder"
-PIPELINE_WORKFLOW_FILE = "sdlc-pipeline.yml"
+PIPELINE_WORKFLOW_FILE = "req2prod-pipeline.yml"
 DEVOPS_AGENT_WORKFLOW_FILE = "devops-agent.yml"
 
 # Both identify a persona's activity from real GitHub data, since
 # pr_fix_agent and pr_arbiter don't have their own GitHub identity -
 # pr_fix_agent only ever leaves a commit (never a review), and
 # pr_arbiter posts under the same MarcoAIagent bot account
-# code_reviewer uses (see sdlc/code_review_runner.py, which writes
+# code_reviewer uses (see req2prod/code_review_runner.py, which writes
 # both of these prefixes verbatim).
 PR_FIX_AGENT_COMMIT_PREFIX = "[pr-fix-agent]"
 PR_ARBITER_BODY_PREFIX = "**Secondary review by pr_arbiter:**"
@@ -243,7 +243,7 @@ def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
         token,
         params={"per_page": 20, "event": "pull_request"},
     )
-    # pr_fix_agent never posts a review of its own (see sdlc/
+    # pr_fix_agent never posts a review of its own (see req2prod/
     # code_review_runner.py) - a commit is the only real trace it left
     # anything, so the actual PR commit list is what tells this diagram
     # a fix round happened at all.
@@ -307,7 +307,7 @@ def get_latest_pr_flow() -> tuple[dict | None, list[dict], str | None]:
 
         if body.startswith(PR_ARBITER_BODY_PREFIX):
             # pr_arbiter posts under the same bot identity code_reviewer
-            # does (see sdlc/code_review_runner.py's docstring for why -
+            # does (see req2prod/code_review_runner.py's docstring for why -
             # GitHub reviews have to come from one consistent account),
             # so only the body text distinguishes the two. A block here
             # is "blocked", never "changes_requested" - the PR is left

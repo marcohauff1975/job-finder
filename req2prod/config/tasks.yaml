@@ -391,7 +391,7 @@ ai_review_task:
     its tracked_files list to find it, then read_repo_file (path =
     {app_repo_path} joined with a tracked_files entry) to open it (for
     example the CrewAI agent and task definitions, including this very
-    sdlc/ panel). Judge whether
+    req2prod/ panel). Judge whether
     the agent design is documented and structured rather than ad hoc,
     whether model/API keys are loaded only from environment variables
     rather than inline, whether there's any evaluation or guardrail

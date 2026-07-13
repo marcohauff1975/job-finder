@@ -49,7 +49,7 @@ from job_search import (
 )
 from ai_viewer import render_sidebar_toggle, setup_layout
 from jobfinder_admin import render_overview_tab
-from sdlc.admin_ui import render_ai_models_tab, render_requirements_tab, render_sdlc_pipeline_tab
+from req2prod.admin_ui import render_ai_models_tab, render_requirements_tab, render_req2prod_pipeline_tab
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
 
@@ -223,14 +223,14 @@ if st.query_params.get("admin") is not None:
             else:
                 st.error("Incorrect password.")
     else:
-        tab_overview, tab_sdlc, tab_requirements, tab_models = st.tabs(
-            ["Overview", "SDLC Pipeline", "Request a New Feature", "AI Models"]
+        tab_overview, tab_req2prod, tab_requirements, tab_models = st.tabs(
+            ["Overview", "Req2Prod Pipeline", "Request a New Feature", "AI Models"]
         )
 
         with tab_overview:
             render_overview_tab(UNLIMITED_USER)
-        with tab_sdlc:
-            render_sdlc_pipeline_tab()
+        with tab_req2prod:
+            render_req2prod_pipeline_tab()
         with tab_requirements:
             render_requirements_tab()
         with tab_models:

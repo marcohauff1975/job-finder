@@ -1,6 +1,6 @@
 """
 Read-only AWS inspection for the AWS Lead Engineer and Security
-Engineer personas (see technology_excellence_* agents in sdlc/SDLC.py)
+Engineer personas (see technology_excellence_* agents in req2prod/Req2Prod.py)
 - checks the REAL, currently-running AWS setup, not just what the
 Terraform code in crewai-infra claims it should be. Drift between the
 two (e.g. a policy attached by hand that Terraform never touches) is

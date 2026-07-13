@@ -6,7 +6,7 @@ delete user.
 Pulled out of streamlit_app.py so that file's admin section reflects the
 actual product boundary already true at runtime: this code only ever
 touches auth.py/reporting.py (Job Finder's own modules), never anything
-under sdlc/ or the sibling sdlc_*.py files - see sdlc/admin_ui.py for
+under req2prod/ or the sibling req2prod_*.py files - see req2prod/admin_ui.py for
 that product's equivalent. Pure extraction: the function body below is
 unchanged from streamlit_app.py's former inline `with tab_overview:`
 block, just relocated and wrapped in a def, with UNLIMITED_USER

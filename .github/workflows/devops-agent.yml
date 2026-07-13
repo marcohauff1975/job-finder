@@ -5,7 +5,7 @@ name: DevOps auto-fix on deploy failure
 # failure from that run's own logs, applies a minimal fix, pushes it,
 # and re-triggers the same workflow so the pipeline heals itself.
 #
-# "SDLC Pipeline" now covers both the code_review job (pull_request)
+# "Req2Prod Pipeline" now covers both the code_review job (pull_request)
 # and the deploy job (push to main) - devops_agent only ever handles
 # deploy pipeline failures, so the guard below excludes the
 # pull_request event explicitly rather than reacting to every failure
@@ -17,7 +17,7 @@ name: DevOps auto-fix on deploy failure
 # automatically.
 on:
   workflow_run:
-    workflows: ["Deploy to production", "SDLC Pipeline"]
+    workflows: ["Deploy to production", "Req2Prod Pipeline"]
     types: [completed]
 
 permissions:
@@ -25,7 +25,7 @@ permissions:
   actions: write
 
 jobs:
-  # Same single-source-of-truth pattern as sdlc-pipeline.yml's own
+  # Same single-source-of-truth pattern as req2prod-pipeline.yml's own
   # resolve_backend job - see that file's comment for the full reasoning.
   # workflow_run events are structurally already trusted (they only ever
   # fire for a workflow that actually ran in this repo, never a fork's),
@@ -67,7 +67,7 @@ jobs:
             echo "already_tried=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Same self-hosted-runner exception as sdlc-pipeline.yml's own Set
+      # Same self-hosted-runner exception as req2prod-pipeline.yml's own Set
       # up Python steps - actions/setup-python assumes a GitHub-hosted
       # runner's "runner" user/home-directory layout for its tool cache,
       # which fails outright on a self-hosted runner (subscription mode)
@@ -80,7 +80,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.guard.outputs.already_tried == 'false'
-        # Same self-hosted-runner PATH reasoning as sdlc-pipeline.yml's
+        # Same self-hosted-runner PATH reasoning as req2prod-pipeline.yml's
         # own install steps - see that file's code_review job comment.
         run: python3 -m pip install -r requirements.txt
 
@@ -99,7 +99,7 @@ jobs:
           FAILED_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           FAILED_WORKFLOW_FILE: ${{ github.event.workflow_run.path }}
           FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
-        run: python3 -m sdlc.devops_agent_runner
+        run: python3 -m req2prod.devops_agent_runner
 
       - name: Notify that this needs a human (already tried once)
         if: steps.guard.outputs.already_tried == 'true'

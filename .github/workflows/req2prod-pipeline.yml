@@ -1,4 +1,4 @@
-name: SDLC Pipeline
+name: Req2Prod Pipeline
 
 # One combined pipeline, replacing the previously separate "PR code
 # review" and "AI prod flow" workflows: every PR still gets an
@@ -41,7 +41,7 @@ jobs:
   # That's not a cost optimization, it's a security boundary:
   # "subscription" routes the job onto a self-hosted runner (Marco's own
   # laptop, authenticated via his Claude subscription - see
-  # sdlc/backend.py), and a self-hosted runner executing an external
+  # req2prod/backend.py), and a self-hosted runner executing an external
   # fork's checked-out code is GitHub's own documented anti-pattern for
   # public repos. A fork PR silently falls back to "api" (GitHub-hosted,
   # as always) regardless of what the toggle says.
@@ -130,7 +130,7 @@ jobs:
           DIFF_FILE: /tmp/pr.diff
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: python3 -m sdlc.code_review_runner
+        run: python3 -m req2prod.code_review_runner
 
   deploy:
     needs: resolve_backend
@@ -159,7 +159,7 @@ jobs:
         run: python3 -m pip install -r requirements.txt
 
       # prod_tester's check_production_health drives a real headless
-      # browser (see sdlc/tools/prod_ops.py) - pip install alone only
+      # browser (see req2prod/tools/prod_ops.py) - pip install alone only
       # gets the Python package, not the actual browser binary. Without
       # this, the browser launch itself fails on every run, which reads
       # identically to "the page shows an error" and triggers a rollback
@@ -257,7 +257,7 @@ jobs:
           NEW_COMMIT: ${{ steps.diff.outputs.new_commit }}
           CHANGE_SUMMARY: ${{ steps.diff.outputs.change_summary }}
           FLOW_TO_TEST: "The homepage loads and login/registration renders."
-        run: python3 -m sdlc.ai_prod_flow_runner
+        run: python3 -m req2prod.ai_prod_flow_runner
 
       - name: Clean up key material
         if: always()

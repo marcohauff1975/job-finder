@@ -1,5 +1,5 @@
 """
-Unit tests for sdlc/model_registry.py's per-backend model storage: the
+Unit tests for req2prod/model_registry.py's per-backend model storage: the
 flat-to-nested migration, and set_agent_model's backend-aware persistence
 + conditional live-mutation. Each test gets its own throwaway JSON file
 via the config_path fixture below, with CONFIG_PATH monkeypatched to
@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from sdlc import model_registry
+from req2prod import model_registry
 
 
 @pytest.fixture
@@ -85,7 +85,7 @@ class TestSetAgentModel:
             json.dumps({"code_reviewer": {"api": "anthropic/claude-sonnet-5", "subscription": "anthropic/claude-sonnet-5"}})
         )
 
-        class FakeSDLCModule:
+        class FakeReq2ProdModule:
             AGENTS_BY_KEY = {"code_reviewer": None}
 
             def __setattr__(self, *a):
@@ -93,7 +93,7 @@ class TestSetAgentModel:
 
         import sys
 
-        monkeypatch.setitem(sys.modules, "sdlc.SDLC", FakeSDLCModule())
+        monkeypatch.setitem(sys.modules, "req2prod.Req2Prod", FakeReq2ProdModule())
 
         # Should not raise/fail even though AGENTS_BY_KEY["code_reviewer"]
         # is None (a real Agent's .llm would be mutated only for "api").
@@ -109,12 +109,12 @@ class TestSetAgentModel:
 
         fake_agent = FakeAgent()
 
-        class FakeSDLCModule:
+        class FakeReq2ProdModule:
             AGENTS_BY_KEY = {"code_reviewer": fake_agent}
 
         import sys
 
-        monkeypatch.setitem(sys.modules, "sdlc.SDLC", FakeSDLCModule())
+        monkeypatch.setitem(sys.modules, "req2prod.Req2Prod", FakeReq2ProdModule())
 
         model_registry.set_agent_model("code_reviewer", "anthropic/claude-opus-4-8", "api")
 
