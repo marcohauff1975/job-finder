@@ -1,8 +1,10 @@
 """
 Admin UI for the CTO Cockpit product's own "CTO Cockpit" tab in
-streamlit_app.py - a live, self-updating diagram of the actual repo's
-product boundaries (not a hand-drawn one-off), plus a placeholder for a
-future live AWS-setup view.
+streamlit_app.py, split into three sub-tabs: Architecture (a live,
+self-updating diagram of the actual repo's product boundaries),
+Connectivity (editable AWS/GitHub/Anthropic/other-tool credentials -
+see cto_cockpit_connectivity.py for the actual save/test logic), and
+Cost (spend for AWS/GitHub/AI, built from those same connections).
 
 "Live" here means: PRODUCT_PATHS below is a small, explicit, rarely-
 touched map of which top-level repo paths belong to which product - NOT
@@ -23,12 +25,30 @@ Follows the "product owns its own admin module" convention set by
 jobfinder_admin.py / req2prod/admin_ui.py: data-building (pure,
 filesystem-only, no network calls) is kept separate from SVG rendering
 (pure, string-only) and both are separate from the Streamlit-facing
-render function, matching req2prod_pr_flow.py's established split.
+render function, matching req2prod_pr_flow.py's established split. The
+Connectivity/Cost tabs make real external calls (boto3, requests), so
+that logic lives in cto_cockpit_connectivity.py rather than here -
+this file stays Streamlit rendering only for those two tabs.
 """
 
+import os
 from pathlib import Path
 
 import streamlit as st
+
+from cto_cockpit_connectivity import (
+    ANTHROPIC_FIELDS,
+    AWS_FIELDS,
+    GITHUB_FIELDS,
+    OTHER_TOOL_FIELDS,
+    ConnectivityField,
+    get_github_actions_billing,
+    save_env_values,
+    test_anthropic_connection,
+    test_aws_connection,
+    test_github_connection,
+)
+from reporting import get_serper_balance
 
 REPO_ROOT = Path(__file__).parent
 
@@ -56,6 +76,7 @@ PRODUCT_PATHS: dict[str, str] = {
     "req2prod_deploy_mode.py": "Req2Prod",
     "req2prod_pr_flow.py": "Req2Prod",
     "cto_cockpit_admin.py": "CTO Cockpit",
+    "cto_cockpit_connectivity.py": "CTO Cockpit",
 }
 
 SHARED_INFRA_PATHS: list[str] = [
@@ -207,11 +228,11 @@ def render_architecture_svg(products: list[str] = PRODUCTS, path_counts: dict[st
     return "\n".join(parts)
 
 
-def render_cto_cockpit_tab() -> None:
-    """The "CTO Cockpit" admin tab: live level-1 architecture diagram, a
-    level-2 drill-down per product via st.expander (native Streamlit
-    widget, matching this app's existing convention rather than custom
-    JS interactivity), and a placeholder "AWS Setup" section."""
+def render_architecture_tab() -> None:
+    """The "Architecture" sub-tab: live level-1 architecture diagram
+    plus a level-2 drill-down per product via st.expander (native
+    Streamlit widget, matching this app's existing convention rather
+    than custom JS interactivity)."""
     st.markdown("### 🏗️ Live system architecture")
     st.caption(
         "Generated from this file's PRODUCT_PATHS map plus a real "
@@ -243,16 +264,195 @@ def render_cto_cockpit_tab() -> None:
             f"EXCLUDED_NOISE: {', '.join(unclassified)}"
         )
 
+
+DEFAULT_GITHUB_REPO = "marcohauff1975/job-finder"
+
+
+def _secret_hint(current_value: str) -> str:
+    """'Currently set (ends ...ab12)' / 'Not set' - never puts the
+    real secret value on the page, just enough to confirm something's
+    there without re-exposing it."""
+    if not current_value:
+        return "Not set"
+    if len(current_value) <= 4:
+        return "Currently set"
+    return f"Currently set (ends ...{current_value[-4:]})"
+
+
+def _render_credential_section(
+    title: str,
+    fields: list[ConnectivityField],
+    test_fn,
+    key_prefix: str,
+    link: str | None = None,
+) -> None:
+    """One Connectivity section (AWS/GitHub/Anthropic/each other tool).
+    Non-secret fields pre-fill from os.getenv via
+    st.text_input(value=...); secret fields render blank with a
+    "Currently set (ends ...)" caption instead of pre-filling the real
+    value into the page - type="password" only masks display, the
+    value is still inspectable via dev tools, and there's no reason to
+    re-expose an already-configured secret on every render. An empty
+    secret submission means "leave unchanged", not "clear it".
+    test_fn takes {env_var: current-or-typed value} and returns
+    (bool, message) - a per-section closure, since AWS/GitHub/
+    Anthropic/Serper each validate differently."""
+    if title:
+        st.markdown(f"#### {title}")
+    if link:
+        st.caption(f"[Open {title} →]({link})")
+
+    typed_values: dict[str, str] = {}
+    for field in fields:
+        current = os.getenv(field.env_var, "")
+        if field.secret:
+            st.caption(_secret_hint(current))
+            typed_values[field.env_var] = st.text_input(
+                field.label,
+                type="password",
+                key=f"{key_prefix}_{field.env_var}",
+                help=field.help or None,
+                placeholder="Leave blank to keep the current value",
+            )
+        else:
+            typed_values[field.env_var] = st.text_input(
+                field.label,
+                value=current,
+                key=f"{key_prefix}_{field.env_var}",
+                help=field.help or None,
+            )
+
+    test_col, save_col = st.columns(2)
+    with test_col:
+        if st.button("Test connection", key=f"{key_prefix}_test"):
+            effective_values = {
+                field.env_var: typed_values[field.env_var] or os.getenv(field.env_var, "")
+                for field in fields
+            }
+            ok, message = test_fn(effective_values)
+            (st.success if ok else st.error)(message)
+    with save_col:
+        if st.button("Save", key=f"{key_prefix}_save"):
+            to_save = {key: value for key, value in typed_values.items() if value}
+            if not to_save:
+                st.info("Nothing to save - all fields left blank.")
+            elif save_env_values(to_save):
+                st.success("Saved. Restart the app for this to take effect.")
+            else:
+                st.error("Couldn't find a .env file to save to.")
+
+
+def _test_serper(_values: dict[str, str]) -> tuple[bool, str]:
+    """Unlike the other three sections, this validates the currently
+    SAVED SERPER_API_KEY (via reporting.get_serper_balance(), which
+    reads os.getenv directly) rather than whatever's typed but not yet
+    saved - reusing that existing health-check as-is rather than
+    writing a parameterized variant just for one field. Surfaced to
+    the user via the caption in render_connectivity_tab, not hidden."""
+    balance = get_serper_balance()
+    if balance is None:
+        return False, "Couldn't reach Serper - this tests the saved key, so save first."
+    return True, f"Connected - {balance} credits remaining"
+
+
+def render_connectivity_tab() -> None:
+    """AWS / GitHub / Anthropic / Serper sections, each backed by
+    cto_cockpit_connectivity's field specs and test_*_connection
+    functions. This is what lets CTO Cockpit eventually ship as a
+    product: a customer hooks up their own AWS/GitHub/Anthropic access
+    from this page instead of needing SSH access to hand-edit .env."""
+    st.caption(
+        "Saves to this app's own .env file - the same single source "
+        "of truth every other credential in this app already reads "
+        "from. Changes to the Anthropic key need a restart to take "
+        "effect (CrewAI's agents are built once, at process start)."
+    )
+
+    _render_credential_section(
+        "AWS",
+        AWS_FIELDS,
+        lambda v: test_aws_connection(
+            v["AWS_ACCESS_KEY_ID"], v["AWS_SECRET_ACCESS_KEY"], v["AWS_REGION"]
+        ),
+        "aws",
+        link="https://console.aws.amazon.com/",
+    )
+
     st.divider()
 
-    st.markdown("### ☁️ AWS setup")
-    st.caption(
-        "Placeholder - the real infrastructure is Terraform in the "
-        "sibling crewai-infra repo (published as job-finder-infra on "
-        "GitHub), not this checkout, so it isn't introspected here yet."
+    github_repo = os.getenv("GITHUB_REPO", DEFAULT_GITHUB_REPO)
+    _render_credential_section(
+        "GitHub",
+        GITHUB_FIELDS,
+        lambda v: test_github_connection(v["GITHUB_VARIABLES_TOKEN"], v["GITHUB_REPO"]),
+        "github",
+        link=f"https://github.com/{github_repo}",
     )
+
+    st.divider()
+
+    st.markdown("#### Claude / Anthropic")
+    st.caption(
+        "Only the API key is configurable here - Subscription-mode "
+        "billing (AGENT_BACKEND=subscription) is separate "
+        "infrastructure that needs an actual `claude login` terminal "
+        "session on whichever machine runs the self-hosted GitHub "
+        "Actions runner, which a web form can't do. A shipped "
+        "deployment would realistically run API-backend mode only."
+    )
+    _render_credential_section(
+        "",
+        ANTHROPIC_FIELDS,
+        lambda v: test_anthropic_connection(v["ANTHROPIC_API_KEY"]),
+        "anthropic",
+    )
+
+    for tool_name, fields in OTHER_TOOL_FIELDS.items():
+        st.divider()
+        _render_credential_section(tool_name, fields, _test_serper, "serper")
+
+
+def render_cost_tab() -> None:
+    """AWS stays an honest placeholder (needs a new IAM permission not
+    yet granted). GitHub is gated behind a "Check GitHub usage" button
+    rather than firing on every render - Streamlit runs every tab's
+    body on every rerun regardless of which tab is on-screen (see
+    req2prod/admin_ui.py's render_requirements_tab docstring), so an
+    unconditional live network call here would fire even while the
+    user is looking at a completely different admin tab. Gracefully
+    degrades if the call fails - genuinely untested against a personal
+    (non-org) account. AI reuses the same manual dashboard link already
+    shown on the AI Models tab (req2prod/admin_ui.py's
+    render_ai_models_tab) - duplicated here for one unified cost view,
+    not removed there."""
+    st.caption("Spend across the services Connectivity is hooked up to.")
+
+    st.markdown("#### AWS")
     st.info(
-        "Coming soon: a live view of the crewai-infra Terraform stack "
-        "(Lightsail instance, firewall rules, Secrets Manager, IAM "
-        "policies, budget alerts), drill-down included."
+        "Not yet connected - reading real AWS spend needs the "
+        "ce:GetCostAndUsage permission, which isn't in this app's "
+        "current scoped IAM policy. Ask to add it via Terraform "
+        "(crewai-infra) when you're ready."
+    )
+
+    st.markdown("#### GitHub")
+    if st.button("Check GitHub usage", key="cost_check_github"):
+        token = os.getenv("GITHUB_VARIABLES_TOKEN", "")
+        repo = os.getenv("GITHUB_REPO", DEFAULT_GITHUB_REPO)
+        owner = repo.split("/")[0] if "/" in repo else repo
+        usage, reason = get_github_actions_billing(token, owner)
+        if usage is not None:
+            st.json(usage)
+        elif reason == "no_token":
+            st.caption("Not yet connected - add a GitHub token on the Connectivity tab.")
+        else:
+            st.caption(
+                "Not available for this account - GitHub's Actions billing "
+                "API may only be exposed for organizations, not personal "
+                "accounts like this repo's owner (unverified)."
+            )
+
+    st.markdown("#### AI (Anthropic)")
+    st.caption(
+        "[Top up Anthropic credits / check real balance](https://platform.claude.com/dashboard)"
     )

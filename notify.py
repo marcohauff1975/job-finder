@@ -7,13 +7,14 @@ never blocks someone from creating an account.
 """
 
 import logging
+import os
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 NOTIFY_TO = "marco.hauff@gmail.com"
 NOTIFY_FROM = "marco.hauff@gmail.com"
-AWS_REGION = "eu-north-1"
+AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
 
 logger = logging.getLogger(__name__)
 

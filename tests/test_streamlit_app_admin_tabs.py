@@ -55,6 +55,16 @@ class TestAdminSidebarOnlyOnRequestNewFeature:
         assert len(at.sidebar) == 0
 
     def test_top_level_tabs_render(self, db):
+        """at.tabs flattens every TabContainer in the render tree, not
+        just top-level ones - Req2Prod's and CTO Cockpit's own nested
+        sub-tabs (Pipeline/Request a New Feature, Architecture/
+        Connectivity/Cost) show up in this same flat list. Asserting
+        an exact full list here would make this test break every time
+        any admin tab grows or loses a nested sub-tab, for a reason
+        that has nothing to do with what this test is actually
+        checking - so it only asserts the 4 top-level labels are
+        present, not the complete flattened list."""
         at = _run_admin_app()
 
-        assert [t.proto.label for t in at.tabs] == ["Jobfinder Admin", "Req2Prod", "AI Models", "CTO Cockpit"]
+        labels = {t.proto.label for t in at.tabs}
+        assert {"Jobfinder Admin", "Req2Prod", "AI Models", "CTO Cockpit"}.issubset(labels)
