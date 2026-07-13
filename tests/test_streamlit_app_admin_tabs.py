@@ -1,15 +1,16 @@
 """
 Regression test for the admin tab wiring in streamlit_app.py.
 
-st.tabs()'s default behavior (on_change="ignore") runs every tab's body
-on every rerun regardless of which tab is visually selected - only the
-DOM placement is tab-scoped, not the underlying Python execution. That
-let render_requirements_tab()'s `with st.sidebar:` block leak onto every
+st.tabs() runs every tab's body on every rerun regardless of which tab
+is visually selected - only the DOM placement is tab-scoped, not the
+underlying Python execution (Streamlit has no way to gate a tab body on
+whether it's the one currently on-screen). That let
+render_requirements_tab()'s `with st.sidebar:` block leak onto every
 other admin tab, since st.sidebar is a page-level singleton, unaffected
-by which tab container is on-screen. Fixed by adding on_change="rerun"
-to both tab levels and gating each tab's body on its own .open, so a
-hidden tab's code (sidebar included) never runs. See streamlit_app.py's
-admin tab block.
+by which tab container is on-screen. Fixed by replacing that block with
+an `st.expander` rendered inside the "Request a New Feature" tab itself
+(req2prod/admin_ui.py's render_requirements_tab) - a normal container is
+properly scoped to its tab's DOM subtree, unlike st.sidebar.
 """
 
 from streamlit.testing.v1 import AppTest

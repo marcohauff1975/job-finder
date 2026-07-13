@@ -187,14 +187,18 @@ def render_requirements_tab() -> None:
     it challenged by the product_manager and software_architect agents
     (req2prod/Req2Prod.py's challenge_requirement) - chat layout modeled on
     Claude Code's own UI: message history on top, input pinned to the
-    bottom, sessions managed from the sidebar. Each session is a JSON
-    file under data/requirements_sessions/ (req2prod/requirements_sessions.py).
+    bottom, sessions managed from an expander at the top of this tab
+    (not st.sidebar - that's a page-level singleton that renders on every
+    admin tab regardless of which st.tabs() body is on-screen, since
+    Streamlit runs every tab's body on every rerun; an expander is scoped
+    to this tab's own container). Each session is a JSON file under
+    data/requirements_sessions/ (req2prod/requirements_sessions.py).
 
     Renamed from streamlit_app.py's _render_requirements_challenge_page -
     body otherwise unchanged, including the [DIAG] print statements and
     the deploy-mode-resync handling below (both address real production
     issues, not cleanup candidates)."""
-    with st.sidebar:
+    with st.expander("Sessions", expanded=True):
         st.markdown("### 💬 Request a New Feature")
         if st.button("+ New session", key="rc_new_session", use_container_width=True):
             st.session_state["rc_session_id"] = new_session_id()
