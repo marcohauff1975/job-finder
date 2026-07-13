@@ -21,7 +21,6 @@ streamlit_app.py always has; just a new pattern for this package, not a
 new risk.
 """
 
-import os
 import time
 
 import streamlit as st
@@ -493,17 +492,6 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
     current_models = load_agent_models()
     display_to_model_id = {label: model_id for model_id, label in MODEL_DISPLAY_NAMES.items()}
 
-    # Every agent now routes through req2prod/backend.py's run_agent(), which
-    # checks this exact env var in whatever process actually runs it - so
-    # this reflects THIS process's own environment, not necessarily the
-    # AGENT_BACKEND GitHub Actions repo variable. They're deliberately
-    # separate: production Streamlit never has a `claude` CLI/subscription
-    # login available, so it always shows "API" here regardless of what
-    # the repo variable is set to for CI runs - only a local
-    # `streamlit run` with AGENT_BACKEND=subscription set beforehand
-    # actually shows "Subscription".
-    backend_label = "Subscription" if os.environ.get("AGENT_BACKEND", "api") == "subscription" else "API"
-
     rows = []
     for agent_key in agent_keys:
         api_recommended_id, api_rationale = RECOMMENDATIONS[agent_key]["api"]
@@ -513,7 +501,6 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         rows.append(
             {
                 "Agent": AGENT_DISPLAY_NAMES[agent_key],
-                "Running as": backend_label,
                 "API model": api_label,
                 "Recommended (API)": MODEL_DISPLAY_NAMES[api_recommended_id],
                 "Subscription model": sub_label,
@@ -533,7 +520,7 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
                 options=list(MODEL_DISPLAY_NAMES.values()), required=True
             ),
         },
-        disabled=["Agent", "Running as", "Recommended (API)", "Recommended (Subscription)", "Why"],
+        disabled=["Agent", "Recommended (API)", "Recommended (Subscription)", "Why"],
         use_container_width=True,
         hide_index=True,
         key=f"{widget_key_prefix}_editor",
@@ -593,15 +580,6 @@ def render_ai_models_tab() -> None:
         "apply immediately and are saved so they survive the next "
         "restart."
     )
-    st.caption(
-        "**Running as** is which one is actually in effect right "
-        "now - it reflects THIS Streamlit process's own "
-        "AGENT_BACKEND environment variable, not the toggle right "
-        "below. Production Streamlit never has a subscription "
-        "login available, so it always shows API here no matter "
-        "what that toggle is set to."
-    )
-
     current_agent_backend = get_agent_backend()
     if current_agent_backend is None:
         st.caption(
