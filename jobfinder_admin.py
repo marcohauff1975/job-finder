@@ -1,5 +1,5 @@
 """
-Admin UI for the Job Finder product's own "Overview" tab in
+Admin UI for the Job Finder product's own "Jobfinder Admin" tab in
 streamlit_app.py - user metrics, tier management, password reset,
 delete user.
 
@@ -21,9 +21,11 @@ from reporting import VALID_TIERS, delete_user_data, get_report, get_serper_bala
 
 
 def render_overview_tab(unlimited_user: str) -> None:
-    """The "Overview" admin tab: registered users/CVs-generated metrics,
+    """The "Jobfinder Admin" tab: registered users/CVs-generated metrics,
     Serper balance, per-user tier management, password reset, and
     delete user."""
+    st.caption("[yourmagicaljobfinder.online](https://www.yourmagicaljobfinder.online)")
+
     report = get_report()
     st.metric("Registered users", report["registered_users"])
     st.metric("CVs generated", report["cvs_total"])
@@ -36,10 +38,6 @@ def render_overview_tab(unlimited_user: str) -> None:
     st.metric(
         "Serper credits remaining",
         serper_balance if serper_balance is not None else "unavailable",
-    )
-
-    st.caption(
-        "[Top up Anthropic credits / check real balance](https://platform.claude.com/dashboard)"
     )
 
     st.markdown("#### Per user")

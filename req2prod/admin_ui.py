@@ -187,14 +187,18 @@ def render_requirements_tab() -> None:
     it challenged by the product_manager and software_architect agents
     (req2prod/Req2Prod.py's challenge_requirement) - chat layout modeled on
     Claude Code's own UI: message history on top, input pinned to the
-    bottom, sessions managed from the sidebar. Each session is a JSON
-    file under data/requirements_sessions/ (req2prod/requirements_sessions.py).
+    bottom, sessions managed from an expander at the top of this tab
+    (not st.sidebar - that's a page-level singleton that renders on every
+    admin tab regardless of which st.tabs() body is on-screen, since
+    Streamlit runs every tab's body on every rerun; an expander is scoped
+    to this tab's own container). Each session is a JSON file under
+    data/requirements_sessions/ (req2prod/requirements_sessions.py).
 
     Renamed from streamlit_app.py's _render_requirements_challenge_page -
     body otherwise unchanged, including the [DIAG] print statements and
     the deploy-mode-resync handling below (both address real production
     issues, not cleanup candidates)."""
-    with st.sidebar:
+    with st.expander("Sessions", expanded=True):
         st.markdown("### 💬 Request a New Feature")
         if st.button("+ New session", key="rc_new_session", use_container_width=True):
             st.session_state["rc_session_id"] = new_session_id()
@@ -588,9 +592,30 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
 
 def render_ai_models_tab() -> None:
     """The "AI Models" admin tab: per-agent API/Subscription model
-    pickers plus the AGENT_BACKEND CI toggle. Mechanical extraction of
-    streamlit_app.py's former `with tab_models:` body - no logic
-    changes."""
+    pickers plus the AGENT_BACKEND CI toggle, grouped by product
+    (Job Finder / Req2Prod / CTO Cockpit - same three products as the
+    CTO Cockpit tab's live architecture diagram) so it's clear which
+    agents belong to which. Only Req2Prod's agents are actually
+    editable here - Job Finder's own agents (job_finder,
+    company_researcher, resume_tailor, resume_reviewer,
+    resume_formatter in job_search.py) pick their model per-user tier,
+    a separate mechanism entirely, adjusted from the Jobfinder Admin
+    tab instead. CTO Cockpit has no agents yet."""
+    st.caption(
+        "[Top up Anthropic credits / check real balance](https://platform.claude.com/dashboard)"
+    )
+
+    st.markdown("### Job Finder")
+    st.caption(
+        "Job Finder's own agents (Job Finder, Company Researcher, "
+        "Resume Tailor, Resume Reviewer, Resume Formatter) pick their "
+        "model per-user tier, not here - adjust that from the "
+        "**Jobfinder Admin** tab's per-user Tier column."
+    )
+
+    st.divider()
+
+    st.markdown("### Req2Prod")
     st.caption(
         "Every Req2Prod agent has two independent model assignments "
         "below - one for the API, one for a Claude subscription - "
@@ -665,3 +690,8 @@ def render_ai_models_tab() -> None:
         "deployed app itself."
     )
     _render_agent_model_table(TECH_EXCELLENCE_AGENT_KEYS, "tech_excellence_agents")
+
+    st.divider()
+
+    st.markdown("### CTO Cockpit")
+    st.caption("Not yet built - no agents yet.")
