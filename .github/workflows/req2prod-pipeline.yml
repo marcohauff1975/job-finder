@@ -125,7 +125,14 @@ jobs:
       - name: Run code_reviewer (and pr_fix_agent / pr_arbiter if needed)
         env:
           AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Only set for "api" mode - claude -p (subscription mode) refuses
+          # to run non-interactively when both an API key and a claude.ai
+          # login are present ("claude.ai connectors are disabled because
+          # ANTHROPIC_API_KEY or another auth source is set and takes
+          # precedence over your claude.ai login"), so this must be unset
+          # (not just unused) whenever the self-hosted runner's own
+          # `claude login` session is what should actually authenticate.
+          ANTHROPIC_API_KEY: ${{ needs.resolve_backend.outputs.backend == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
           REVIEWER_BOT_TOKEN: ${{ secrets.REVIEWER_BOT_TOKEN }}
           DIFF_FILE: /tmp/pr.diff
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -246,7 +253,14 @@ jobs:
       - name: Run prod_tester (and rollback_agent if needed)
         env:
           AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Only set for "api" mode - claude -p (subscription mode) refuses
+          # to run non-interactively when both an API key and a claude.ai
+          # login are present ("claude.ai connectors are disabled because
+          # ANTHROPIC_API_KEY or another auth source is set and takes
+          # precedence over your claude.ai login"), so this must be unset
+          # (not just unused) whenever the self-hosted runner's own
+          # `claude login` session is what should actually authenticate.
+          ANTHROPIC_API_KEY: ${{ needs.resolve_backend.outputs.backend == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
           SSH_KEY_PATH: /tmp/deploy_key
           REMOTE_USER: ${{ env.REMOTE_USER }}
