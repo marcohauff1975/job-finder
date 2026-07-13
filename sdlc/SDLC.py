@@ -226,6 +226,7 @@ LINKEDIN_ACTIVITY_LOG_DIR = (
 # --- Load agent/task definitions from the config/ folder -----------------
 
 CONFIG_DIR = Path(__file__).parent / "config"
+LESSONS_DIR = Path(__file__).parent / "lessons"
 
 with open(CONFIG_DIR / "agents.yaml", "r") as f:
     agents_config = yaml.safe_load(f)
@@ -235,6 +236,35 @@ with open(CONFIG_DIR / "tasks.yaml", "r") as f:
 
 with open(CONFIG_DIR / "ux_guidelines.md", "r") as f:
     UX_GUIDELINES = f.read()
+
+
+# --- Lessons store ----------------------------------------------------
+# Each agent's hard-won, incident-derived rules live in a reviewable,
+# git-tracked file (sdlc/lessons/<agent_key>.md), kept separate from the
+# stable identity in agents.yaml. This appends an agent's lessons to its
+# backstory at load time, so every Agent(config=agents_config[key]) below
+# picks them up with no per-call-site change. See sdlc/lessons/README.md.
+
+def _augment_backstories_with_lessons(config: dict) -> None:
+    """Append sdlc/lessons/<agent_key>.md to each agent's backstory, in
+    place. Agents with no lessons file are left unchanged."""
+    for agent_key, agent_cfg in config.items():
+        lessons_path = LESSONS_DIR / f"{agent_key}.md"
+        if not lessons_path.exists():
+            continue
+        lessons = lessons_path.read_text().strip()
+        if not lessons:
+            continue
+        backstory = (agent_cfg.get("backstory") or "").rstrip()
+        agent_cfg["backstory"] = (
+            f"{backstory}\n\n"
+            "--- LESSONS LEARNED "
+            "(each from a real past outcome; consult before acting) ---\n"
+            f"{lessons}"
+        )
+
+
+_augment_backstories_with_lessons(agents_config)
 
 # --- LLM ------------------------------------------------------------------
 # Which Claude model each agent below runs on is data, not code: it lives
