@@ -66,5 +66,9 @@
   "software_engineer": {
     "api": "anthropic/claude-haiku-4-5-20251001",
     "subscription": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "retrospective": {
+    "api": "anthropic/claude-haiku-4-5-20251001",
+    "subscription": "anthropic/claude-haiku-4-5-20251001"
   }
 }

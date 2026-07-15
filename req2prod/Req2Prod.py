@@ -34,6 +34,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import requests
 import yaml
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai_tools import FileReadTool, FileWriterTool
@@ -63,9 +64,12 @@ from req2prod.tools.github_audit import GitHubLiveRepoCheckTool
 from req2prod.tools.feature_build_ops import CreateFeatureBranchAndOpenPRTool
 from req2prod.tools.build_workspace import (
     build_workspace,
+    git_askpass_env,
+    run_in_workspace,
     WorkspaceEditTool,
     WorkspaceFileReadTool,
     WorkspaceFileWriterTool,
+    _GITHUB_REPO,
 )
 
 load_dotenv()
@@ -139,6 +143,14 @@ class ArbiterVerdict(BaseModel):
     safe_to_merge: bool
     reasoning: str
     blocking_reasons: list[str] = []
+
+
+class DraftedLesson(BaseModel):
+    add_lesson: bool
+    target_agent: str = ""
+    lesson_id: str = ""
+    lesson_markdown: str = ""
+    rationale: str = ""
 
 
 class ReadinessFinding(BaseModel):
@@ -485,6 +497,47 @@ pr_arbiter_task = Task(
 pr_arbiter_crew = Crew(
     agents=[pr_arbiter],
     tasks=[pr_arbiter_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+# --- Retrospective: draft a lesson from a notable outcome --------------
+# Continuous-learning loop (see AGENT_INTELLIGENCE_PHASE3.md): after a
+# notable outcome, the retrospective agent (Haiku) drafts at most one
+# lesson; pr_arbiter approves it; and only then is a gated PR opened
+# appending it to req2prod/lessons/<agent>.md. The agent only ever
+# produces data - the git/PR work is deterministic (propose_lesson()).
+
+retrospective_agent = Agent(
+    config=agents_config["retrospective"],
+    llm=_llm("retrospective"),
+    verbose=True,
+)
+
+retrospective_task = Task(
+    config=tasks_config["retrospective_task"],
+    agent=retrospective_agent,
+    output_pydantic=DraftedLesson,
+)
+
+retrospective_crew = Crew(
+    agents=[retrospective_agent],
+    tasks=[retrospective_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+# Reuses the pr_arbiter agent (Marco's designated approver) to judge a
+# drafted lesson before it can be proposed.
+lesson_arbitration_task = Task(
+    config=tasks_config["lesson_arbitration_task"],
+    agent=pr_arbiter,
+    output_pydantic=ArbiterVerdict,
+)
+
+lesson_arbitration_crew = Crew(
+    agents=[pr_arbiter],
+    tasks=[lesson_arbitration_task],
     process=Process.sequential,
     verbose=True,
 )
@@ -1353,6 +1406,147 @@ def challenge_requirement(
     if pm_result is None or architect_result is None:
         return None
     return pm_result, architect_result
+
+
+# --- Retrospective loop functions -------------------------------------
+# See AGENT_INTELLIGENCE_PHASE3.md. propose_lesson() is the one entry
+# point callers use (retrospective_runner.py, the rollback path); it
+# drafts, gets pr_arbiter approval, and opens a gated PR - never merging.
+
+
+def run_retrospective(
+    trigger: str, outcome_context: str, candidate_agent: str
+) -> DraftedLesson | None:
+    """Run the retrospective agent over one notable outcome and return
+    its drafted lesson (or a decision not to add one)."""
+    lessons_path = LESSONS_DIR / f"{candidate_agent}.md"
+    current_lessons = (
+        lessons_path.read_text()
+        if lessons_path.exists()
+        else "(no existing lessons for this agent yet)"
+    )
+    inputs = {
+        "trigger": trigger,
+        "outcome_context": outcome_context,
+        "candidate_agent": candidate_agent,
+        "current_lessons": current_lessons,
+        "today": date.today().isoformat(),
+    }
+    return run_agent(
+        agent_key="retrospective",
+        task_key="retrospective_task",
+        inputs=inputs,
+        output_model=DraftedLesson,
+        kickoff=lambda: retrospective_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["retrospective"]["subscription"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="",
+    )
+
+
+def arbitrate_lesson(
+    target_agent: str, drafted_lesson: str, rationale: str, outcome_context: str
+) -> ArbiterVerdict | None:
+    """Have pr_arbiter approve or reject a drafted lesson before it can
+    be proposed as a PR (Marco's designated approver for lessons)."""
+    inputs = {
+        "target_agent": target_agent,
+        "drafted_lesson": drafted_lesson,
+        "rationale": rationale,
+        "outcome_context": outcome_context,
+    }
+    return run_agent(
+        agent_key="pr_arbiter",
+        task_key="lesson_arbitration_task",
+        inputs=inputs,
+        output_model=ArbiterVerdict,
+        kickoff=lambda: lesson_arbitration_crew.kickoff(inputs=inputs),
+        agents_config=agents_config,
+        tasks_config=tasks_config,
+        model=_agent_models["pr_arbiter"]["subscription"],
+        cwd=str(REPO_ROOT),
+        allowed_tools="",
+    )
+
+
+def _open_lesson_pr(target_agent: str, lesson_markdown: str, source_desc: str) -> str:
+    """Append the approved lesson to req2prod/lessons/<agent>.md and open
+    a PR - deterministically, in a throwaway clone (never the live
+    checkout), pushing/opening with GITHUB_PR_PUSH_TOKEN exactly like
+    software_engineer's feature PRs. Never merges; pr_arbiter has already
+    approved the lesson's substance."""
+    push_token = os.getenv("GITHUB_PR_PUSH_TOKEN")
+    if not push_token:
+        return "Lesson approved but GITHUB_PR_PUSH_TOKEN is not set - cannot open the PR here."
+    rel_path = f"req2prod/lessons/{target_agent}.md"
+    branch = f"lesson/{target_agent}-{date.today().isoformat()}-{os.getpid()}"
+    with build_workspace() as ws:
+        target = ws / rel_path
+        if not target.exists():
+            return f"Lesson approved but {rel_path} does not exist (unknown agent '{target_agent}') - not opening a PR."
+        target.write_text(target.read_text().rstrip() + "\n\n" + lesson_markdown.strip() + "\n")
+
+        code, out, err = run_in_workspace(["git", "checkout", "-B", branch])
+        if code != 0:
+            return f"git checkout -B {branch} failed: {err or out}"
+        code, out, err = run_in_workspace(["git", "add", rel_path])
+        if code != 0:
+            return f"git add failed: {err or out}"
+        commit_msg = f"[retrospective] Add lesson to {target_agent} ({source_desc})"
+        code, out, err = run_in_workspace(["git", "commit", "-m", commit_msg])
+        if code != 0:
+            return f"git commit failed (maybe nothing changed?): {err or out}"
+        push_url = f"https://x-access-token@github.com/{_GITHUB_REPO}.git"
+        with git_askpass_env(push_token) as env:
+            code, out, err = run_in_workspace(
+                ["git", "push", push_url, f"{branch}:{branch}"], timeout=60, env=env
+            )
+        if code != 0:
+            return f"git push failed: {err or out}"
+
+        title = f"[lesson] {target_agent}: proposed by retrospective agent"
+        body = (
+            f"Auto-drafted by the `retrospective` agent after a notable outcome "
+            f"({source_desc}) and approved by `pr_arbiter`. Appends one lesson to "
+            f"`{rel_path}`.\n\nSee `req2prod/AGENT_INTELLIGENCE_PHASE3.md`.\n\n"
+            f"---\n\n{lesson_markdown}"
+        )
+        try:
+            response = requests.post(
+                f"https://api.github.com/repos/{_GITHUB_REPO}/pulls",
+                headers={
+                    "Authorization": f"Bearer {push_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                json={"title": title, "head": branch, "base": "main", "body": body},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return f"Opened lesson PR: {response.json()['html_url']}"
+        except (requests.RequestException, KeyError, ValueError) as e:
+            return f"Pushed branch '{branch}' but opening the PR failed: {e}"
+
+
+def propose_lesson(trigger: str, outcome_context: str, candidate_agent: str) -> str:
+    """Full retrospective loop for one notable outcome: draft (Haiku) ->
+    approve (pr_arbiter) -> open a gated PR appending the lesson. Returns a
+    human-readable summary. Never merges anything itself."""
+    draft = run_retrospective(trigger, outcome_context, candidate_agent)
+    if draft is None:
+        return "Retrospective produced no result."
+    if not draft.add_lesson or not draft.lesson_markdown.strip():
+        return f"Retrospective: no lesson worth adding. {draft.rationale}".strip()
+
+    target = draft.target_agent or candidate_agent
+    verdict = arbitrate_lesson(target, draft.lesson_markdown, draft.rationale, outcome_context)
+    if verdict is None:
+        return "Retrospective drafted a lesson, but arbitration produced no result - not opening a PR."
+    if not verdict.safe_to_merge:
+        reasons = "; ".join(verdict.blocking_reasons) or verdict.reasoning
+        return f"Retrospective drafted a lesson for {target}, but pr_arbiter rejected it: {reasons}"
+    return _open_lesson_pr(target, draft.lesson_markdown, trigger)
 
 
 if __name__ == "__main__":
