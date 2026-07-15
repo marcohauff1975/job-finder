@@ -20,8 +20,12 @@ reproducibly and version-pinned.
 
 ## Attribution & licenses
 
-These are third-party skills, vendored verbatim (no modifications). They keep
-their upstream licenses; this project's own MIT license does not apply to them.
+Only each skill's `SKILL.md` (its instructions) is vendored, verbatim and
+unmodified — that is the only part injected into an agent's prompt at runtime.
+The skills' optional `references/` reference files are intentionally omitted (an
+agent never loads them here); the full skills live upstream at the links below.
+These are third-party skills that keep their upstream licenses; this project's
+own MIT license does not apply to them.
 
 - **`frontend-design`, `brand-guidelines`** — © Anthropic, from
   [anthropics/skills](https://github.com/anthropics/skills), licensed
