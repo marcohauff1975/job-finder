@@ -21,6 +21,7 @@ streamlit_app.py always has; just a new pattern for this package, not a
 new risk.
 """
 
+import json
 import time
 from pathlib import Path
 
@@ -46,6 +47,59 @@ from req2prod_agent_backend_mode import get_agent_backend, set_agent_backend
 from req2prod_agent_steps import get_agent_activity
 from req2prod_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
 from req2prod_pr_flow import get_latest_pr_flow, render_pr_flow_svg
+
+
+# Placeholder text of the requirements st.chat_input - shared by the widget
+# itself and the JS selector that prefills it (see _prefill_chat_input_if_requested).
+_REQUIREMENT_INPUT_PLACEHOLDER = "Describe a feature, or answer the open questions above..."
+
+
+# --- Demo prefill requirements -------------------------------------------
+# Ready-made feature requests seeded (not auto-run) by the "Demo" buttons on
+# the Request-a-New-Feature page. They demonstrate Req2Prod shipping a real
+# change to the Job Finder app: one adds the req2prod logo to the top-right of
+# the main public landing page, the other removes it. The SVG is the
+# self-contained "primary lockup" from req2prod_option4_kit.html - pure inline
+# markup, no file:// path, no external font or network request - so the logo
+# renders on the live site with Marco's Mac switched off once merged/deployed.
+# The stable id="req2prod-demo-logo" makes Add and Remove exact inverses.
+_DEMO_LOGO_SVG = (
+    '<div id="req2prod-demo-logo" style="position:fixed;top:12px;right:16px;z-index:1000;">'
+    '<svg width="150" height="45" viewBox="0 0 300 90" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    '<defs><linearGradient id="r2p-c1" x1="8" y1="26" x2="30" y2="64" gradientUnits="userSpaceOnUse">'
+    '<stop stop-color="#818cf8"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>'
+    '<path d="M10 28 L28 45 L10 62" stroke="url(#r2p-c1)" stroke-width="6" fill="none" '
+    'stroke-linecap="round" stroke-linejoin="round"/>'
+    '<text x="44" y="59" font-family="ui-monospace,\'SF Mono\',\'JetBrains Mono\',Menlo,Consolas,monospace" '
+    'font-size="42" font-weight="700" letter-spacing="-2" fill="#f1f5f9">req<tspan fill="#818cf8">2</tspan>prod</text>'
+    '<rect x="258" y="30" width="15" height="30" rx="2.5" fill="#818cf8">'
+    '<animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;.5;.5;1;1" dur="1.1s" repeatCount="indefinite"/>'
+    '</rect></svg></div>'
+)
+
+DEMO_ADD_LOGO_REQUIREMENT = (
+    "Add the req2prod logo to the top-right corner of the main public Job Finder "
+    "landing page - the page rendered in streamlit_app.py after the admin block "
+    "that ends at the `st.stop()` around line 253, NOT the admin tabs.\n\n"
+    "Inject it once, near the top of that main-page render, via "
+    "`st.markdown(..., unsafe_allow_html=True)`. Use this exact self-contained "
+    "inline SVG (no external files, fonts, or network requests) - it is already "
+    "wrapped in a fixed-position container pinned to the top-right corner that "
+    "overlays the page without disturbing layout:\n\n"
+    "```html\n" + _DEMO_LOGO_SVG + "\n```\n\n"
+    "Keep the container's `id=\"req2prod-demo-logo\"` exactly as given so it can be "
+    "removed cleanly later. Do not add the logo to any admin page - only the main "
+    "public landing page."
+)
+
+DEMO_REMOVE_LOGO_REQUIREMENT = (
+    "Remove the req2prod demo logo from the main public Job Finder landing page. "
+    "Delete the fixed-position container with `id=\"req2prod-demo-logo\"` (and its "
+    "inline SVG) that was previously injected near the top of the main-page render "
+    "in streamlit_app.py, along with the `st.markdown(...)` call that emits it. "
+    "Leave the rest of the page unchanged. After this change the main landing page "
+    "should render with no req2prod logo in the corner."
+)
 
 
 def _run_with_retry(func, *args, retries=1, **kwargs):
@@ -177,6 +231,127 @@ def _format_conversation_for_agents(messages: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _prefill_chat_input_if_requested() -> None:
+    """If a demo button set rc_demo_inject, push that text into the real
+    requirements st.chat_input box client-side, so the user reviews it and
+    sends it with the same ↑ button as any typed message - the demo then
+    follows the exact same flow as the rest of the page. st.chat_input has
+    no server-side prefill, so we set the textarea's value in the browser
+    using the same window.parent pattern already used for the admin-login
+    autofocus in streamlit_app.py; the native value setter + input event is
+    what makes Streamlit's React widget register the text (enabling its send
+    button).
+
+    We deliberately do NOT pop rc_demo_inject here: popping it in the same
+    run tears the injecting iframe down before its async script runs. Instead
+    the flag persists and a per-click nonce guards the browser so the text is
+    injected exactly once per button press - later reruns re-render this
+    (harmless) script but the nonce check skips re-injection, so it never
+    clobbers whatever the user has since typed. The flag is cleared on submit
+    (see the st.chat_input handler)."""
+    text = st.session_state.get("rc_demo_inject")
+    if not text:
+        return
+    nonce = st.session_state.get("rc_demo_nonce", 0)
+    # json.dumps handles quotes/newlines; the </ -> <\/ guard keeps any
+    # markup in the requirement from prematurely closing the <script> tag.
+    payload = json.dumps(text).replace("</", "<\\/")
+    st.components.v1.html(
+        f"""
+        <script>
+        (function () {{
+            try {{
+                const nonce = {nonce};
+                const w = window.parent;
+                if (w.__r2pInjectNonce === nonce) return;  // already injected this click
+                const ta = w.document.querySelector(
+                    'textarea[placeholder="{_REQUIREMENT_INPUT_PLACEHOLDER}"]'
+                );
+                if (!ta) return;
+                const setter = Object.getOwnPropertyDescriptor(
+                    w.HTMLTextAreaElement.prototype, 'value'
+                ).set;
+                setter.call(ta, {payload});
+                ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                ta.focus();
+                w.__r2pInjectNonce = nonce;
+            }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _submit_requirement(text: str) -> None:
+    """Feed one feature-request message into the requirements challenge and
+    render the agents' response. Shared entry point for both the free-form
+    st.chat_input below and the demo prefill "Send to agents" button - the
+    body is the former inline st.chat_input handler, extracted verbatim
+    (prompt -> text) so both paths behave identically."""
+    if not st.session_state.get("rc_session_id"):
+        st.session_state["rc_session_id"] = new_session_id()
+    session_id = st.session_state["rc_session_id"]
+
+    messages = st.session_state.get("rc_messages", [])
+    messages.append({"role": "user", "content": text})
+    st.session_state["rc_messages"] = messages
+    save_session(session_id, messages)
+
+    result = None
+    error = None
+    # See the "Push to Software Engineer" handler for why save_session()
+    # runs inside this `with` block rather than after it - st.spinner()'s
+    # __exit__ is where a disconnected client would abort the script via a
+    # BaseException our `except Exception` below can't catch, silently
+    # losing the result. TEMPORARY [DIAG] prints, see that handler for why
+    # they log only presence/shape and never actual user/agent content.
+    print(f"[DIAG] challenge_requirement starting, session={session_id}", flush=True)
+    with st.spinner("✨ Magic is happening, please wait..."):
+        try:
+            result = _run_with_retry(
+                challenge_requirement, _format_conversation_for_agents(messages)
+            )
+            print(f"[DIAG] challenge_requirement returned, got_result={result is not None}", flush=True)
+        except Exception as e:
+            error = f"The requirements challenge failed: {e}"
+            print(f"[DIAG] challenge_requirement raised: {type(e).__name__}", flush=True)
+
+        if error is not None or result is None:
+            messages.append(
+                {
+                    "role": "product_manager",
+                    "content": f"⚠️ {error or 'Something went wrong and no response was produced.'} "
+                    "Try rephrasing or resubmitting.",
+                }
+            )
+        else:
+            pm_result, architect_result = result
+            messages.append(
+                {
+                    "role": "product_manager",
+                    "content": _format_pm_result(pm_result),
+                    "data": pm_result.model_dump(),
+                }
+            )
+            messages.append(
+                {
+                    "role": "software_architect",
+                    "content": _format_architect_result(architect_result),
+                    "data": architect_result.model_dump(),
+                }
+            )
+
+        # See the "Push to Software Engineer" handler for why save_session()
+        # now runs before the st.session_state write.
+        save_session(session_id, messages)
+        print(f"[DIAG] save_session done, session={session_id}", flush=True)
+        st.session_state["rc_messages"] = messages
+
+    print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
+    st.rerun()
+
+
 def render_requirements_tab() -> None:
     """Admin-only sub-page where Marco types a raw feature idea and gets
     it challenged by the product_manager and software_architect agents
@@ -201,6 +376,25 @@ def render_requirements_tab() -> None:
         "</div>",
         unsafe_allow_html=True,
     )
+
+    # --- Demo prefill buttons ---------------------------------------------
+    # Seed (never auto-run) a ready-made feature request that has Req2Prod add
+    # or remove the req2prod logo on the main Job Finder page. Clicking a button
+    # only drops the request text into the normal chat input at the bottom of
+    # the page (see _prefill_chat_input_if_requested) - the human reviews/edits
+    # it and hits the same ↑ send button as any typed message, so the demo runs
+    # through the exact same flow as the rest of the page (challenge -> Push to
+    # Software Engineer -> PR -> merge -> deploy). Nothing runs on this click.
+    st.caption("🎬 Demo — prefill a ready-made request into the box below, then send it like any other:")
+    demo_add_col, demo_remove_col = st.columns(2)
+    # Bump a nonce on each click so the browser injects the fresh text exactly
+    # once (see _prefill_chat_input_if_requested's nonce guard).
+    if demo_add_col.button("➕ Demo: Add Req2Prod Logo", key="rc_demo_add"):
+        st.session_state["rc_demo_inject"] = DEMO_ADD_LOGO_REQUIREMENT
+        st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
+    if demo_remove_col.button("➖ Demo: Remove Req2Prod Logo", key="rc_demo_remove"):
+        st.session_state["rc_demo_inject"] = DEMO_REMOVE_LOGO_REQUIREMENT
+        st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
 
     current_deploy_mode = get_auto_deploy_mode()
     if current_deploy_mode is None:
@@ -335,70 +529,15 @@ def render_requirements_tab() -> None:
             print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
             st.rerun()
 
-    prompt = st.chat_input("Describe a feature, or answer the open questions above...")
+    prompt = st.chat_input(_REQUIREMENT_INPUT_PLACEHOLDER)
+    # A demo button click lands here (same run) and injects its text into the
+    # chat_input above; the user then sends it exactly like a typed message.
+    _prefill_chat_input_if_requested()
     if prompt:
-        if not st.session_state.get("rc_session_id"):
-            st.session_state["rc_session_id"] = new_session_id()
-        session_id = st.session_state["rc_session_id"]
-
-        messages = st.session_state.get("rc_messages", [])
-        messages.append({"role": "user", "content": prompt})
-        st.session_state["rc_messages"] = messages
-        save_session(session_id, messages)
-
-        result = None
-        error = None
-        # See the "Push to Software Engineer" handler above for why
-        # save_session() runs inside this `with` block rather than after
-        # it - st.spinner()'s __exit__ is where a disconnected client
-        # would abort the script via a BaseException our `except
-        # Exception` below can't catch, silently losing the result.
-        # TEMPORARY [DIAG] prints, see that handler for why they log
-        # only presence/shape and never actual user/agent content.
-        print(f"[DIAG] challenge_requirement starting, session={session_id}", flush=True)
-        with st.spinner("✨ Magic is happening, please wait..."):
-            try:
-                result = _run_with_retry(
-                    challenge_requirement, _format_conversation_for_agents(messages)
-                )
-                print(f"[DIAG] challenge_requirement returned, got_result={result is not None}", flush=True)
-            except Exception as e:
-                error = f"The requirements challenge failed: {e}"
-                print(f"[DIAG] challenge_requirement raised: {type(e).__name__}", flush=True)
-
-            if error is not None or result is None:
-                messages.append(
-                    {
-                        "role": "product_manager",
-                        "content": f"⚠️ {error or 'Something went wrong and no response was produced.'} "
-                        "Try rephrasing or resubmitting.",
-                    }
-                )
-            else:
-                pm_result, architect_result = result
-                messages.append(
-                    {
-                        "role": "product_manager",
-                        "content": _format_pm_result(pm_result),
-                        "data": pm_result.model_dump(),
-                    }
-                )
-                messages.append(
-                    {
-                        "role": "software_architect",
-                        "content": _format_architect_result(architect_result),
-                        "data": architect_result.model_dump(),
-                    }
-                )
-
-            # See the "Push to Software Engineer" handler above for why
-            # save_session() now runs before the st.session_state write.
-            save_session(session_id, messages)
-            print(f"[DIAG] save_session done, session={session_id}", flush=True)
-            st.session_state["rc_messages"] = messages
-
-        print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
-        st.rerun()
+        # Whether typed or demo-prefilled, the requirement now goes out through
+        # this one path - clear the demo flag so it can't re-inject afterwards.
+        st.session_state.pop("rc_demo_inject", None)
+        _submit_requirement(prompt)
 
 
 def render_req2prod_pipeline_tab() -> None:

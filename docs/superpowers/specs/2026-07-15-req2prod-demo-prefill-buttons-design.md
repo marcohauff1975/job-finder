@@ -32,12 +32,23 @@ logo asset must be fully self-contained (no `file://`, no external requests).
 
 ## Key technical constraint
 
-Streamlit's `st.chat_input` cannot be programmatically pre-filled — its value
-is React-controlled and clears on submit. So we do **not** try to inject text
-into the chat input via DOM/JS. Instead, when a demo button is clicked we render
-an editable `st.text_area` (which *can* be seeded from session state) holding
-the canned requirement, plus an explicit **Send to agents** button. The existing
-`st.chat_input` stays in place for free-form typing.
+Streamlit's `st.chat_input` cannot be pre-filled from Python — it has no
+`value` and no session-state binding, and it resets on rerun. But the demo must
+follow the **exact same flow as the rest of the page**: the request lands in the
+normal chat input and the user sends it with the same ↑ button. So we prefill
+`st.chat_input` **client-side**: a demo click renders a tiny
+`st.components.v1.html` script (the same `window.parent` DOM pattern already
+used for the admin-login autofocus in `streamlit_app.py`) that sets the chat
+textarea's value via the native setter and dispatches an `input` event, which
+makes Streamlit's React widget register the text and enable its send button.
+
+Two subtleties, both verified in a local harness:
+- **Do not pop the inject flag in the same run.** Popping it tears the injecting
+  iframe down before its async script executes. The flag persists instead.
+- **Guard with a per-click nonce.** The script only injects when
+  `window.__r2pInjectNonce` differs from the current nonce, so incidental
+  reruns re-render the (harmless) script without clobbering what the user has
+  since typed. The flag is cleared on submit.
 
 ## UI / flow
 
@@ -48,18 +59,21 @@ existing hero markdown:
    - `➕ Demo: Add Req2Prod Logo`
    - `➖ Demo: Remove Req2Prod Logo`
 
-   Clicking either sets `st.session_state["rc_demo_prefill"] = <canned text>`
-   and calls `st.rerun()`. No agent/pipeline call.
+   Clicking either sets `st.session_state["rc_demo_inject"] = <canned text>`
+   and bumps `st.session_state["rc_demo_nonce"]`. No agent/pipeline call, no
+   explicit rerun (the button click's own rerun suffices).
 
-2. **Prefilled editable field** — rendered only when
-   `st.session_state.get("rc_demo_prefill")` is set:
-   - `st.text_area` seeded with the canned text (editable by the user).
-   - A **Send to agents** button and a **Clear** button (Clear wipes
-     `rc_demo_prefill` and reruns, hiding the field).
-   - On **Send**, call the shared `_submit_requirement(text)` helper (below),
-     then clear `rc_demo_prefill`.
+2. **`_prefill_chat_input_if_requested()`** — called right after the
+   `st.chat_input(...)` line. If `rc_demo_inject` is set, it renders the
+   nonce-guarded injection script (height 0) that fills the real chat input.
 
-3. **Existing `st.chat_input`** — unchanged; still available for typed input.
+3. **`st.chat_input`** — the single input for both typed and demo requests. On
+   submit, the handler pops `rc_demo_inject` and calls the shared
+   `_submit_requirement(text)` helper, so typed and demo requests go through one
+   identical path (challenge → Push to Software Engineer → PR → merge → deploy).
+
+There is intentionally **no** separate demo text box or "Send to agents" button —
+the demo reuses the page's own chat input and ↑ send.
 
 ### Refactor: extract `_submit_requirement(text)`
 
@@ -133,10 +147,11 @@ server renders it independently of Marco's Mac.
 
 ## Testing / verification
 
-- **Prefill behavior (local):** clicking each demo button shows the editable
-  field seeded with the correct canned text; no agent call fires on click
-  (verify via absence of the `[DIAG] challenge_requirement starting` log until
-  Send is pressed). Clear hides the field.
+- **Prefill behavior (local):** clicking each demo button fills the real
+  chat input with the correct canned text (Add vs Remove), the ↑ send button
+  becomes enabled, and clicking the other demo button swaps the text; no agent
+  call fires on click (verify via absence of the `[DIAG] challenge_requirement
+  starting` log until ↑ is pressed). Verified in a local harness.
 - **Shared path:** typing in `st.chat_input` and pressing Send from the demo
   field both route through `_submit_requirement` and produce identical message
   flow.
@@ -147,5 +162,7 @@ server renders it independently of Marco's Mac.
 
 ## Files touched
 
-- `req2prod/admin_ui.py` — demo button row, prefilled field, `_submit_requirement`
-  extraction, two prompt constants. Additive; typed path unchanged.
+- `req2prod/admin_ui.py` — demo button row, `_prefill_chat_input_if_requested`
+  (nonce-guarded client-side injection into `st.chat_input`),
+  `_submit_requirement` extraction, and the prompt/placeholder constants.
+  Additive; the typed path is unchanged and now shared with the demo path.
