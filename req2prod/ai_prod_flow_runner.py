@@ -80,6 +80,22 @@ def main() -> int:
     )
     print(rollback_result)
 
+    # Best-effort retrospective: a production rollback is a notable outcome,
+    # so draft a lesson for review (gated by pr_arbiter). This never blocks
+    # or changes the rollback result - the rollback has already happened.
+    try:
+        from req2prod.Req2Prod import propose_lesson
+
+        context = (
+            f"A production deploy (commit {new_commit}) failed its smoke test and "
+            f"was rolled back. prod_tester's observation: {prod_result.observation}. "
+            f"Rollback outcome: {getattr(rollback_result, 'summary', rollback_result)}."
+        )
+        print("=== Retrospective (drafting a lesson from this rollback) ===")
+        print(propose_lesson("production rollback", context, "prod_tester"))
+    except Exception as e:
+        print(f"::warning::retrospective step failed (ignored): {e}")
+
     if rollback_result is None or not rollback_result.rollback_test_passed:
         print("::error::Rollback did not restore health either - needs manual investigation")
         return 1

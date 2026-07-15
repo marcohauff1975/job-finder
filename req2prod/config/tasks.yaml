@@ -642,3 +642,56 @@ rollback_task:
     tool's own output, not assumed), whether the post-rollback health
     check passed, and a summary of what failed originally for a human
     to investigate.
+
+retrospective_task:
+  description: >
+    A notable outcome just occurred in the Req2Prod pipeline.
+    Trigger: {trigger}.
+
+    Full context of what happened:
+    {outcome_context}
+
+    The agent most likely to need a new lesson is "{candidate_agent}".
+    Its current lessons are:
+    {current_lessons}
+
+    Decide whether there is a genuine, generalizable lesson here. Do NOT
+    add one if the outcome was a one-off with nothing an agent could do
+    differently, or if it is already covered by an existing lesson above.
+    If there is a real lesson, draft exactly one entry in the same format
+    as the existing lessons - a line "## <ID> - <short imperative title>"
+    followed by "- **Source:**", "- **Severity:**", "- **Trigger:**",
+    and "- **Rule:**" lines. Pick the next unused ID for the target agent
+    (its lessons use a short prefix, e.g. PT-04 for prod_tester), and set
+    Source to "{today} - {trigger}". Target the single agent whose
+    behaviour should change - usually "{candidate_agent}", but pick a
+    different one if the evidence clearly points elsewhere.
+  expected_output: >
+    add_lesson (true only if a lesson should be added), the target_agent
+    key, the chosen lesson_id, the full lesson_markdown entry exactly as
+    it should be appended, and a one-line rationale.
+  agent: retrospective
+
+lesson_arbitration_task:
+  description: >
+    The retrospective agent has drafted a new lesson to add to the
+    Req2Prod lessons store, targeting agent "{target_agent}". The drafted
+    lesson is:
+    {drafted_lesson}
+
+    Rationale given: {rationale}
+
+    The outcome that prompted it:
+    {outcome_context}
+
+    You are the approver - this lesson changes how "{target_agent}"
+    behaves, so nothing is added without your sign-off. Approve it only
+    if it is (a) genuinely generalizable rather than a reaction to a
+    one-off, (b) concrete and checkable rather than a platitude, (c)
+    correctly targeted at an agent that can actually act on it, and (d)
+    not already implied by that agent's existing behaviour or lessons.
+    Reject vague, duplicate, or over-correcting lessons.
+  expected_output: >
+    safe_to_merge true/false (true = add the lesson), your reasoning in
+    plain language, and any blocking reasons if you reject it.
+  agent: pr_arbiter
