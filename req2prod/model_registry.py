@@ -17,6 +17,11 @@ from pathlib import Path
 from crewai import LLM
 
 CONFIG_PATH = Path(__file__).parent / "config" / "agent_models.json"
+# agent_models.json is runtime state - it's edited live from the admin "AI
+# Models" tab and must survive deploys, so it is gitignored (not tracked).
+# This committed template seeds it on a fresh checkout / deploy where the
+# live file doesn't exist yet.
+DEFAULT_CONFIG_PATH = Path(__file__).parent / "config" / "agent_models.default.json"
 
 MODEL_DISPLAY_NAMES = {
     "anthropic/claude-haiku-4-5-20251001": "Haiku 4.5 (fast, cheap)",
@@ -321,6 +326,11 @@ def _migrate_flat_entry(value: str | dict) -> dict[str, str]:
 
 
 def load_agent_models() -> dict[str, dict[str, str]]:
+    # Seed the runtime file from the committed default on a fresh checkout
+    # (it's gitignored, so a clean clone / deploy won't have it yet).
+    if not CONFIG_PATH.exists() and DEFAULT_CONFIG_PATH.exists():
+        CONFIG_PATH.write_text(DEFAULT_CONFIG_PATH.read_text())
+
     with open(CONFIG_PATH, "r") as f:
         raw = json.load(f)
 

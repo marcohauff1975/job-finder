@@ -64,9 +64,18 @@ jobs:
           echo "Production is currently on: $PREV_COMMIT"
 
       - name: Pull latest main on the server
+        # req2prod/config/agent_models.json is runtime state (edited live via
+        # the admin "AI Models" tab) and is gitignored, so it must survive the
+        # pull. Untrack it on the server (git rm --cached keeps the working
+        # file) so `git pull --ff-only` never conflicts on it - this also heals
+        # the one-time transition from when it was still tracked. No backup /
+        # restore, so there is no concurrent-deploy clobber and no window where
+        # a live admin edit could be overwritten. --ignore-unmatch makes it a
+        # clean no-op once the file is already untracked. Only $REMOTE_APP_DIR
+        # expands on the runner; the rest runs on the server.
         run: |
           ssh -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
-            "cd $REMOTE_APP_DIR && git pull --ff-only origin main"
+            "cd $REMOTE_APP_DIR && git rm --cached --ignore-unmatch req2prod/config/agent_models.json && git pull --ff-only origin main"
 
       - name: Decide whether a restart is actually needed
         id: diff
