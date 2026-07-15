@@ -21,10 +21,15 @@ memory / read MEMORY.md" instead of returning the review JSON, and failed
 PRs whose diff was itself full of skill content. `--bare` would drop all
 that but ALSO drops the OAuth/login session (confirmed: it returns "Not
 logged in"), which is the whole point of subscription mode. So instead we
-keep the real config (for auth) and disable only the pollutants:
---disable-slash-commands (no skills), plus --settings turning off hooks and
-auto-memory. Runs from the repo's own checkout (see Req2Prod.py's REPO_ROOT)
-- pr_fix_agent needs to be there to edit real files in place.
+keep the real config (for auth) and disable the pollutants we have a
+confirmed flag for: --disable-slash-commands, plus --settings turning off
+hooks and auto-memory. NOTE: --disable-slash-commands only disables slash
+commands - Skills are invoked autonomously via description matching, a
+separate mechanism, and are NOT confirmed to be suppressed by any flag
+here. If personal ~/.claude/skills reproduce the same derailment, that
+still needs a real fix (skills are unaffected by the flags below). Runs
+from the repo's own checkout (see Req2Prod.py's REPO_ROOT) - pr_fix_agent
+needs to be there to edit real files in place.
 
 Scoped only to code_reviewer/pr_fix_agent/pr_arbiter for now - the highest-
 volume, non-time-critical part of the pipeline, and the part just proven
@@ -146,9 +151,9 @@ def run_via_subscription(
         f"JSON schema - no prose before or after it, no markdown fence:\n{schema}"
     )
 
-    # Isolate from the runner's personal ~/.claude (plugins/skills/hooks/
-    # auto-memory) - see this module's docstring. Keeps auth (not --bare),
-    # drops only the context that derails the headless review.
+    # Isolate from the runner's personal ~/.claude (plugins/hooks/
+    # auto-memory) - see this module's docstring. Keeps auth (not --bare).
+    # Does NOT confirm suppression of personal Skills (see docstring NOTE).
     cmd = [
         _resolve_claude_binary(),
         "-p",

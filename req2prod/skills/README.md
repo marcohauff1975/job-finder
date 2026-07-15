@@ -1,17 +1,20 @@
 # Agent skills
 
 Vendored [Agent Skills](https://code.claude.com/docs/en/skills) (`SKILL.md` +
-reference files) that the Req2Prod review agents load as domain knowledge. Each
-skill is attached to the relevant agent in `Req2Prod.py` via `Agent(skills=...)`
-and injected into that agent's system prompt at runtime.
+reference files) intended for the Req2Prod review agents to load as domain
+knowledge. **Not yet wired up:** no `Agent()` definition in `Req2Prod.py`
+currently passes a `skills=` argument or otherwise references this directory,
+so these files are not presently attached to or injected into any agent's
+system prompt. The table below describes the intended mapping once wiring is
+added.
 
 They are vendored here (rather than referenced from a developer's personal
 `~/.claude/skills/`) so the pipeline has them wherever it runs — CI and prod —
 reproducibly and version-pinned.
 
-## What's attached where
+## What's intended to attach where
 
-| Skill | Attached to | Purpose |
+| Skill | Intended for | Purpose |
 |---|---|---|
 | `modern-python` | `python_lead_engineer`, `ai_engineer` | Modern Python tooling & conventions (uv, ruff, ty, pyproject) |
 | `insecure-defaults` | `security_engineer` | Detecting fail-open insecure defaults |
