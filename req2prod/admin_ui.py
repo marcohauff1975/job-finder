@@ -22,13 +22,14 @@ new risk.
 """
 
 import time
+from pathlib import Path
 
 import streamlit as st
+import yaml
 
 from req2prod.Req2Prod import (
     ArchitectureDirectionResult,
     FeatureRequirementsResult,
-    agents_config,
     build_feature,
     challenge_requirement,
 )
@@ -480,6 +481,37 @@ def render_req2prod_pipeline_tab() -> None:
             st.markdown("---")
 
 
+_AGENTS_YAML_PATH = Path(__file__).parent / "config" / "agents.yaml"
+_LESSONS_DIR = Path(__file__).parent / "lessons"
+
+
+def _load_clean_agent_identity(agent_key: str) -> dict:
+    """role/backstory straight from agents.yaml, read fresh (not
+    req2prod.Req2Prod's own module-level agents_config) - that copy has
+    its backstory mutated in place at import time to append lessons
+    text (see Req2Prod.py's _augment_backstories_with_lessons), so
+    importing it here would show the same lessons text twice: once
+    folded into "Backstory", once again in the "Lessons" section
+    below. Reading the file independently keeps the two genuinely
+    separate. Read on every render (not cached), matching this app's
+    existing "live" convention for admin pages (e.g. cto_cockpit_admin.py's
+    filesystem reads) - agents.yaml changes should show up without a
+    restart."""
+    with open(_AGENTS_YAML_PATH) as f:
+        config = yaml.safe_load(f)
+    return config[agent_key]
+
+
+def _load_lessons(agent_key: str) -> str | None:
+    """Raw markdown from req2prod/lessons/<agent_key>.md, or None if
+    that agent has no lessons file (yet)."""
+    path = _LESSONS_DIR / f"{agent_key}.md"
+    if not path.exists():
+        return None
+    text = path.read_text().strip()
+    return text or None
+
+
 def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> None:
     """Renders one editable Agent/API model/Subscription model/Why table
     for the given agent_keys (see AGENT_DISPLAY_NAMES in
@@ -646,16 +678,21 @@ def render_ai_models_tab() -> None:
 
     st.markdown("##### How this crew is built")
     st.caption(
-        "Role and backstory read live from req2prod/config/agents.yaml, "
-        "not a static writeup - this always matches the real prompt each "
-        "persona runs with. Lessons (incident-derived rules learned over "
-        "time) and skills (which tools each persona can call) aren't "
-        "wired in here yet - coming soon."
+        "Role, backstory, and lessons read live from "
+        "req2prod/config/agents.yaml and req2prod/lessons/ - not a "
+        "static writeup, so this always matches what each persona "
+        "actually runs with. Skills (which tools each persona can "
+        "call) isn't wired in here yet - coming soon."
     )
     for agent_key in TECH_EXCELLENCE_AGENT_KEYS:
-        cfg = agents_config[agent_key]
+        cfg = _load_clean_agent_identity(agent_key)
+        lessons = _load_lessons(agent_key)
         with st.expander(AGENT_DISPLAY_NAMES[agent_key]):
             st.markdown(f"**Role**\n\n{cfg['role'].strip()}")
             st.markdown(f"**Backstory**\n\n{cfg['backstory'].strip()}")
-            st.caption("Lessons: coming soon")
+            st.markdown("**Lessons**")
+            if lessons:
+                st.markdown(lessons)
+            else:
+                st.caption("None yet.")
             st.caption("Skills: coming soon")
