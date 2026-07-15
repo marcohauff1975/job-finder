@@ -268,6 +268,30 @@ def _augment_backstories_with_lessons(config: dict) -> None:
 
 _augment_backstories_with_lessons(agents_config)
 
+
+# --- Agent skills -----------------------------------------------------
+# Vendored SKILL.md skills (req2prod/skills/) attached to specific review
+# agents as domain knowledge. Pre-activated to INSTRUCTIONS level so
+# attaching one deterministically injects its full body into that agent's
+# system prompt at construction. See req2prod/skills/README.md.
+
+from crewai.skills.loader import activate_skill, discover_skills
+
+SKILLS_DIR = Path(__file__).parent / "skills"
+_skills_by_name = (
+    {s.name: activate_skill(s) for s in discover_skills(SKILLS_DIR)}
+    if SKILLS_DIR.exists()
+    else {}
+)
+
+
+def _skills(*names: str):
+    """Skill objects for the given names, to pass to Agent(skills=...).
+    Unknown names are skipped; returns None if none resolve."""
+    resolved = [_skills_by_name[n] for n in names if n in _skills_by_name]
+    return resolved or None
+
+
 # --- LLM ------------------------------------------------------------------
 # Which Claude model each agent below runs on is data, not code: it lives
 # in config/agent_models.json and is editable live from the admin "AI
@@ -343,6 +367,7 @@ ux_reviewer = Agent(
     config=agents_config["ux_reviewer"],
     llm=_llm("ux_reviewer"),
     tools=[UXPageInspectorTool()],
+    skills=_skills("frontend-design", "brand-guidelines"),
     verbose=True,
 )
 
@@ -545,16 +570,25 @@ python_lead_engineer = Agent(
     config=agents_config["python_lead_engineer"],
     llm=_llm("python_lead_engineer"),
     tools=_readiness_tools,
+    skills=_skills("modern-python"),
     verbose=True,
 )
 data_engineer = Agent(
     config=agents_config["data_engineer"], llm=_llm("data_engineer"), tools=_readiness_tools, verbose=True
 )
 ai_engineer = Agent(
-    config=agents_config["ai_engineer"], llm=_llm("ai_engineer"), tools=_readiness_tools, verbose=True
+    config=agents_config["ai_engineer"],
+    llm=_llm("ai_engineer"),
+    tools=_readiness_tools,
+    skills=_skills("modern-python"),
+    verbose=True,
 )
 security_engineer = Agent(
-    config=agents_config["security_engineer"], llm=_llm("security_engineer"), tools=_security_tools, verbose=True
+    config=agents_config["security_engineer"],
+    llm=_llm("security_engineer"),
+    tools=_security_tools,
+    skills=_skills("insecure-defaults"),
+    verbose=True,
 )
 
 cto_review_task = Task(
