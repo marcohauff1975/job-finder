@@ -150,3 +150,21 @@ jobs:
           from notify import send_devops_giveup_notification
           send_devops_giveup_notification(os.environ['FAILED_WORKFLOW_NAME'], str(os.environ['FAILED_RUN_ID']))
           "
+
+      # Continuous learning: the circuit breaker tripping is a notable
+      # outcome. Best-effort - draft a lesson for review (gated by
+      # pr_arbiter); self-contained so it doesn't depend on the fix-path
+      # steps that were skipped when the circuit opened. Never fails the job.
+      - name: Retrospective - draft a lesson from the runaway cascade
+        if: steps.breaker.outputs.circuit_open == 'true'
+        continue-on-error: true
+        env:
+          AGENT_BACKEND: ${{ needs.resolve_backend.outputs.backend }}
+          ANTHROPIC_API_KEY: ${{ needs.resolve_backend.outputs.backend == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
+          GITHUB_PR_PUSH_TOKEN: ${{ secrets.GITHUB_PR_PUSH_TOKEN }}
+          RETRO_TRIGGER: "devops auto-fix circuit breaker tripped"
+          RETRO_CANDIDATE_AGENT: "devops_agent"
+          RETRO_CONTEXT: "The DevOps auto-fix circuit breaker tripped: this workflow ran too many times in a short window (many deploy failures at once, or a fix loop that didn't converge), so auto-fixing was stopped and escalated. Triggering workflow: ${{ github.event.workflow_run.name }} (run ${{ github.event.workflow_run.id }})."
+        run: |
+          python3 -m pip install -q -r requirements.txt
+          python3 -m req2prod.retrospective_runner
