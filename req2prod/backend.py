@@ -184,7 +184,11 @@ def run_via_subscription(
         return None
 
     if proc.returncode != 0:
-        print(f"::error::claude -p failed (exit {proc.returncode}): {proc.stderr.strip()[:500]}")
+        # claude -p puts real failure detail (e.g. "Not logged in") on
+        # stdout, not stderr - log whichever is non-empty so the CI run
+        # actually shows why it failed instead of an empty message.
+        detail = (proc.stderr.strip() or proc.stdout.strip() or "(no output)")[:800]
+        print(f"::error::claude -p failed (exit {proc.returncode}): {detail}")
         return None
 
     try:
