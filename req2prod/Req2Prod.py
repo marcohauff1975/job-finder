@@ -280,6 +280,7 @@ def _augment_backstories_with_lessons(config: dict) -> None:
 
 _augment_backstories_with_lessons(agents_config)
 
+
 # --- LLM ------------------------------------------------------------------
 # Which Claude model each agent below runs on is data, not code: it lives
 # in config/agent_models.json and is editable live from the admin "AI
@@ -604,10 +605,16 @@ data_engineer = Agent(
     config=agents_config["data_engineer"], llm=_llm("data_engineer"), tools=_readiness_tools, verbose=True
 )
 ai_engineer = Agent(
-    config=agents_config["ai_engineer"], llm=_llm("ai_engineer"), tools=_readiness_tools, verbose=True
+    config=agents_config["ai_engineer"],
+    llm=_llm("ai_engineer"),
+    tools=_readiness_tools,
+    verbose=True,
 )
 security_engineer = Agent(
-    config=agents_config["security_engineer"], llm=_llm("security_engineer"), tools=_security_tools, verbose=True
+    config=agents_config["security_engineer"],
+    llm=_llm("security_engineer"),
+    tools=_security_tools,
+    verbose=True,
 )
 
 cto_review_task = Task(
