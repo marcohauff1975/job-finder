@@ -12,14 +12,24 @@ authored himself - never for an external fork's PR, regardless of the
 toggle, since a self-hosted runner physically executing an untrusted PR's
 code is a real risk on a public repo.
 
-Deliberately does NOT pass --bare to `claude -p`: Anthropic's own docs are
-explicit that --bare skips the long-lived CLAUDE_CODE_OAUTH_TOKEN, but are
-unclear on whether it also skips an ordinary interactive `claude login`
-subscription session - getting that wrong would silently fall back to
-requiring ANTHROPIC_API_KEY, defeating the entire point of this module.
-Runs from the repo's own checkout instead (see Req2Prod.py's REPO_ROOT) - it
-has no CLAUDE.md to pick up unwanted context from anyway, and pr_fix_agent
-needs to be there regardless, since it edits real files in place.
+Isolates the headless review from this machine's personal Claude Code
+context. The self-hosted runner is Marco's own laptop, so a plain
+`claude -p` there loads his ~/.claude - installed plugins (e.g. the
+superpowers SessionStart hook injecting "you have superpowers"), personal
+skills, and auto-memory - which derailed the reviewer into "let me check my
+memory / read MEMORY.md" instead of returning the review JSON, and failed
+PRs whose diff was itself full of skill content. `--bare` would drop all
+that but ALSO drops the OAuth/login session (confirmed: it returns "Not
+logged in"), which is the whole point of subscription mode. So instead we
+keep the real config (for auth) and disable the pollutants we have a
+confirmed flag for: --disable-slash-commands, plus --settings turning off
+hooks and auto-memory. NOTE: --disable-slash-commands only disables slash
+commands - Skills are invoked autonomously via description matching, a
+separate mechanism, and are NOT confirmed to be suppressed by any flag
+here. If personal ~/.claude/skills reproduce the same derailment, that
+still needs a real fix (skills are unaffected by the flags below). Runs
+from the repo's own checkout (see Req2Prod.py's REPO_ROOT) - pr_fix_agent
+needs to be there to edit real files in place.
 
 Scoped only to code_reviewer/pr_fix_agent/pr_arbiter for now - the highest-
 volume, non-time-critical part of the pipeline, and the part just proven
@@ -141,7 +151,21 @@ def run_via_subscription(
         f"JSON schema - no prose before or after it, no markdown fence:\n{schema}"
     )
 
-    cmd = [_resolve_claude_binary(), "-p", prompt, "--output-format", "json", "--model", _clean_model_id(model)]
+    # Isolate from the runner's personal ~/.claude (plugins/hooks/
+    # auto-memory) - see this module's docstring. Keeps auth (not --bare).
+    # Does NOT confirm suppression of personal Skills (see docstring NOTE).
+    cmd = [
+        _resolve_claude_binary(),
+        "-p",
+        prompt,
+        "--output-format",
+        "json",
+        "--model",
+        _clean_model_id(model),
+        "--disable-slash-commands",
+        "--settings",
+        '{"disableAllHooks": true, "autoMemoryEnabled": false}',
+    ]
     if allowed_tools:
         cmd += ["--allowedTools", allowed_tools]
     else:
@@ -165,7 +189,11 @@ def run_via_subscription(
         return None
 
     if proc.returncode != 0:
-        print(f"::error::claude -p failed (exit {proc.returncode}): {proc.stderr.strip()[:500]}")
+        # claude -p puts real failure detail (e.g. "Not logged in") on
+        # stdout, not stderr - log whichever is non-empty so the CI run
+        # actually shows why it failed instead of an empty message.
+        detail = (proc.stderr.strip() or proc.stdout.strip() or "(no output)")[:800]
+        print(f"::error::claude -p failed (exit {proc.returncode}): {detail}")
         return None
 
     try:
