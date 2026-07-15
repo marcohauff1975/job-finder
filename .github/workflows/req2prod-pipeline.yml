@@ -209,19 +209,15 @@ jobs:
           echo "Production is currently on: $PREV_COMMIT"
 
       - name: Pull latest main on the server
-        # req2prod/config/agent_models.json is runtime state (edited live via
-        # the admin "AI Models" tab) and is gitignored, so it must survive the
-        # pull. Back up the live copy, drop any leftover tracked-copy diff so
-        # `git pull --ff-only` stays clean (this also heals the one-time
-        # transition from when the file was still tracked), then restore the
-        # live values. Same handling as deploy-to-prod.yml's pull step.
+        # agent_models.json is runtime state (edited live via the admin "AI
+        # Models" tab) and is gitignored, so it must survive the pull. Untrack
+        # it on the server (keeps the working file) so `git pull --ff-only`
+        # never conflicts on it - this also heals the one-time transition from
+        # when it was tracked. No backup/restore, so no concurrency or
+        # admin-edit race. Same handling as deploy-to-prod.yml's pull step.
         run: |
           ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
-            "cd $REMOTE_APP_DIR \
-             && { [ -f req2prod/config/agent_models.json ] && cp -f req2prod/config/agent_models.json /tmp/agent_models.live.json || true; } \
-             && { git checkout -- req2prod/config/agent_models.json 2>/dev/null || true; } \
-             && git pull --ff-only origin main \
-             && { [ -f /tmp/agent_models.live.json ] && cp -f /tmp/agent_models.live.json req2prod/config/agent_models.json || true; }"
+            "cd $REMOTE_APP_DIR && git rm --cached --ignore-unmatch req2prod/config/agent_models.json && git pull --ff-only origin main"
 
       - name: Decide whether a restart is actually needed
         id: diff
