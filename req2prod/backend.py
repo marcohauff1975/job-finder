@@ -46,12 +46,42 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable, TypeVar
 
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
+
+
+# The one Bash command form an agent may use to reach tool_cli.py's tools,
+# and the --allowedTools pattern granting exactly it. Both are derived from
+# one string on purpose: the instruction an agent is *given* and the
+# permission it is *granted* have to be character-identical or claude -p's
+# permission gate stops the command, and they used to be separate literals
+# in two modules (this one's bash_tool_instructions, and every allowed_tools=
+# argument over in Req2Prod.py) that only worked while they happened to match.
+#
+# sys.executable rather than a bare "python": that name does not exist on
+# macOS at all - only "python3" does - and the self-hosted runner that
+# AGENT_BACKEND=subscription routes onto IS a Mac. So every agent that
+# actually needed a tool was told to run a command that could not resolve
+# there. It would fail, the agent would improvise something reasonable
+# (`ssh ...` directly), the improvisation wasn't in its allowlist, and the
+# permission gate would stop it dead asking for an approval no one is there
+# to give: a green deploy of 741ee30 was reported as a production failure
+# because prod_tester never got to run its health check, and rollback_agent
+# then hit the same wall (see PR #73's run). The workflow already learned
+# this lesson for its own steps - see req2prod-pipeline.yml's `python3 -m pip`
+# and its comment - it just never reached the agents' instructions.
+#
+# sys.executable also pins the interpreter that actually has this project's
+# dependencies importable, which a bare "python3" would not: the Streamlit
+# app runs out of venv/, whose python3 is not the system one, and
+# challenge_requirement/build_feature call straight into here from there.
+TOOL_CLI_COMMAND = f"{sys.executable} -m req2prod.tool_cli"
+TOOL_CLI_ALLOWED_TOOLS = f"Bash({TOOL_CLI_COMMAND} *)"
 
 
 def _resolve_claude_binary() -> str:
@@ -94,7 +124,11 @@ def bash_tool_instructions(tool_names: list[str], workspace_dir: str | None = No
     workspace_flag = f" --workspace-dir {workspace_dir}" if workspace_dir else ""
     lines = [
         "You have Bash access, restricted to exactly one command form: "
-        f"`python -m req2prod.tool_cli{workspace_flag} <tool_name> '<json kwargs>'`. "
+        f"`{TOOL_CLI_COMMAND}{workspace_flag} <tool_name> '<json kwargs>'`. "
+        "Run it exactly as written, including the full interpreter path - it is "
+        "the only form your permissions allow, and no other spelling of it (a "
+        "bare `python`/`python3`, or reaching the same behaviour another way) "
+        "will be permitted to run. "
         "Available <tool_name> values and what each does:"
     ]
     for name in tool_names:

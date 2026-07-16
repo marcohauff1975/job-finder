@@ -41,7 +41,12 @@ from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from req2prod.backend import bash_tool_instructions, run_agent, run_via_subscription
+from req2prod.backend import (
+    TOOL_CLI_ALLOWED_TOOLS,
+    bash_tool_instructions,
+    run_agent,
+    run_via_subscription,
+)
 from req2prod.model_registry import load_agent_models
 
 # Makes `req2prod.tools...` importable whether this file is run directly
@@ -818,7 +823,7 @@ def review_code(diff: str) -> CodeReviewResult | None:
         tasks_config=tasks_config,
         model=_agent_models["code_reviewer"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m req2prod.tool_cli *)",
+        allowed_tools=TOOL_CLI_ALLOWED_TOOLS,
         extra_prompt_context=bash_tool_instructions(
             ["check_pypi_package_version", "check_anthropic_model_id"]
         ),
@@ -936,7 +941,7 @@ def review_ux(
         tasks_config=tasks_config,
         model=_agent_models["ux_reviewer"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m req2prod.tool_cli *)",
+        allowed_tools=TOOL_CLI_ALLOWED_TOOLS,
         extra_prompt_context=bash_tool_instructions(["inspect_job_finder_page"]),
     )
 
@@ -974,7 +979,7 @@ def test_production(
         tasks_config=tasks_config,
         model=_agent_models["prod_tester"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m req2prod.tool_cli *)",
+        allowed_tools=TOOL_CLI_ALLOWED_TOOLS,
         extra_prompt_context=bash_tool_instructions(["check_production_health"]),
     )
 
@@ -1017,7 +1022,7 @@ def rollback(
         tasks_config=tasks_config,
         model=_agent_models["rollback_agent"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Bash(python -m req2prod.tool_cli *)",
+        allowed_tools=TOOL_CLI_ALLOWED_TOOLS,
         extra_prompt_context=bash_tool_instructions(["rollback_production"]),
     )
 
@@ -1118,7 +1123,7 @@ def _review_project_readiness_via_subscription(inputs: dict[str, str]) -> Readin
             output_model=PersonaReviewResult,
             model=_agent_models[agent_key]["subscription"],
             cwd=str(REPO_ROOT),
-            allowed_tools="Bash(python -m req2prod.tool_cli *)",
+            allowed_tools=TOOL_CLI_ALLOWED_TOOLS,
             extra_prompt_context=bash_tool_instructions(tool_names),
         )
         if result is None:
@@ -1232,7 +1237,7 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
                 output_model=FeatureBuildResult,
                 model=_agent_models["software_engineer"]["subscription"],
                 cwd=str(workspace_path),
-                allowed_tools="Bash(python -m req2prod.tool_cli *)",
+                allowed_tools=TOOL_CLI_ALLOWED_TOOLS,
                 extra_prompt_context=bash_tool_instructions(
                     [
                         "Read a file's content",
@@ -1360,7 +1365,7 @@ def fix_deploy_failure(
         tasks_config=tasks_config,
         model=_agent_models["devops_agent"]["subscription"],
         cwd=str(REPO_ROOT),
-        allowed_tools="Read,Edit,Bash(python -m req2prod.tool_cli *)",
+        allowed_tools=f"Read,Edit,{TOOL_CLI_ALLOWED_TOOLS}",
         extra_prompt_context=bash_tool_instructions(
             ["fetch_failed_run_logs", "commit_and_push_fix", "retrigger_deploy_workflow"]
         ),
