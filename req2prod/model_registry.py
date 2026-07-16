@@ -325,6 +325,19 @@ def _migrate_flat_entry(value: str | dict) -> dict[str, str]:
     return value
 
 
+def _default_agent_models() -> dict[str, str | dict]:
+    """The committed default template's entries, or {} if it's missing or
+    unreadable - a broken template must never take the app down, it just
+    means there's nothing to seed or backfill from."""
+    if not DEFAULT_CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(DEFAULT_CONFIG_PATH, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def load_agent_models() -> dict[str, dict[str, str]]:
     # Seed the runtime file from the committed default on a fresh checkout
     # (it's gitignored, so a clean clone / deploy won't have it yet).
@@ -335,6 +348,20 @@ def load_agent_models() -> dict[str, dict[str, str]]:
         raw = json.load(f)
 
     migrated = {key: _migrate_flat_entry(value) for key, value in raw.items()}
+
+    # Backfill agents the committed default knows about but the live file
+    # doesn't. The live file is deliberately preserved across deploys (it
+    # holds the model choices made from the admin "AI Models" tab), so a
+    # deploy that ADDS an agent leaves it with no entry for that agent -
+    # and code that looks the new agent up KeyErrors at import, taking the
+    # whole app down. Observed 2026-07-15: #55 added `retrospective`, the
+    # preserved live file predated it, and production crashed on startup.
+    # Only ever adds missing keys - an existing live choice is never
+    # overwritten by the default.
+    for key, value in _default_agent_models().items():
+        if key not in migrated:
+            migrated[key] = _migrate_flat_entry(value)
+
     if migrated != raw:
         with open(CONFIG_PATH, "w") as f:
             json.dump(migrated, f, indent=2)
