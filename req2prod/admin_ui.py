@@ -512,9 +512,17 @@ def render_requirements_tab() -> None:
     if demo_add_col.button("➕ Demo: Add Req2Prod Logo", key="rc_demo_add"):
         st.session_state["rc_demo_inject"] = DEMO_ADD_LOGO_REQUIREMENT
         st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
+        # A demo needs the box it prefills to exist, so asking for one is also
+        # asking for the box back - otherwise clicking this while a requirement
+        # is waiting to be pushed would look like a dead button.
+        st.session_state["rc_refine_open"] = True
     if demo_remove_col.button("➖ Demo: Remove Req2Prod Logo", key="rc_demo_remove"):
         st.session_state["rc_demo_inject"] = DEMO_REMOVE_LOGO_REQUIREMENT
         st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
+        # A demo needs the box it prefills to exist, so asking for one is also
+        # asking for the box back - otherwise clicking this while a requirement
+        # is waiting to be pushed would look like a dead button.
+        st.session_state["rc_refine_open"] = True
 
     current_deploy_mode = get_auto_deploy_mode()
     is_live_deploy_mode = current_deploy_mode is not None
@@ -617,8 +625,25 @@ def render_requirements_tab() -> None:
             st.markdown(message["content"])
 
     ready_pair = _latest_ready_pair(messages)
+    # Once both agents are ready the page is asking one question - push it, or
+    # don't - so the "describe a feature" box below stops applying and only
+    # competes with the answer. It stays hidden until either the requirement
+    # is pushed (the engineer's reply makes ready_pair None again) or "Add
+    # something first" deliberately asks for it back. That escape isn't
+    # optional: st.chat_input is the only way to add a message at all, there
+    # is no session switcher to start over with (see this function's
+    # docstring), and the whole point of this half of the pipeline is that
+    # Marco can still say "no, also do X" after both agents have agreed.
+    awaiting_push = ready_pair is not None and not st.session_state.get("rc_refine_open")
     if ready_pair is not None:
         st.success("Both agents have confirmed this is ready for development.")
+        if awaiting_push:
+            _, refine_col = st.columns([2, 1])
+            if refine_col.button(
+                "✏️ Add something first", key="rc_refine", use_container_width=True
+            ):
+                st.session_state["rc_refine_open"] = True
+                st.rerun()
         if st.button("🚀 Push to Software Engineer", key="rc_push_to_engineer", type="primary"):
             pm_result, architect_result = ready_pair
             session_id = st.session_state["rc_session_id"]
@@ -695,10 +720,16 @@ def render_requirements_tab() -> None:
             st.session_state["rc_jump_nonce"] = st.session_state.get("rc_jump_nonce", 0) + 1
             st.rerun()
 
-    prompt = st.chat_input(_REQUIREMENT_INPUT_PLACEHOLDER)
+    prompt = None if awaiting_push else st.chat_input(_REQUIREMENT_INPUT_PLACEHOLDER)
     # A demo button click lands here (same run) and injects its text into the
     # chat_input above; the user then sends it exactly like a typed message.
-    _prefill_chat_input_if_requested()
+    # Skipped while the box is hidden - the injector needs a real textarea to
+    # write into and silently gives up without one, so this would be a no-op
+    # that looks like a broken button. The demo buttons ask for the box back
+    # rather than being hidden themselves, so this only skips a click that
+    # can't happen.
+    if not awaiting_push:
+        _prefill_chat_input_if_requested()
     _jump_to_pipeline_tab_if_requested()
     if prompt:
         # Whether typed or demo-prefilled, the requirement now goes out through
@@ -708,6 +739,10 @@ def render_requirements_tab() -> None:
         # it belonged to is no longer the latest thing said, so the flag has
         # served its purpose and must not survive into an unrelated run.
         st.session_state.pop("rc_jump_to_pipeline", None)
+        # And for the refine escape: this message is what it was opened for,
+        # and it makes ready_pair None on its own, so leaving it set would keep
+        # the box open through the next ready verdict too.
+        st.session_state.pop("rc_refine_open", None)
         _submit_requirement(prompt)
 
 
