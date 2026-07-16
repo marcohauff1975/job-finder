@@ -281,12 +281,6 @@ st.markdown(
                 <stop offset="100%" style="stop-color:#f1f5f9;stop-opacity:1" />
             </linearGradient>
         </defs>
-
-        <!-- Background circle for visual containment -->
-        <circle cx="60" cy="60" r="58" fill="none" stroke="#818cf8" stroke-width="2" opacity="0.4"/>
-
-        <!-- Accent circle -->
-        <circle cx="85" cy="40" r="6" fill="#818cf8"/>
     </svg>
     """,
     unsafe_allow_html=True,
