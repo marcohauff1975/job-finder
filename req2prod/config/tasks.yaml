@@ -636,11 +636,15 @@ rollback_task:
     {failure_reason}
     The production instance is reachable at {instance_ip} (SSH user
     {remote_user}, key already at {key_path}), the app directory is
-    {remote_app_dir}, the systemd service is {service_name}, and the
+    {remote_app_dir}, the systemd services are {service_name} and
+    {admin_service_name} (the second may be empty, meaning the box has
+    only one), and the
     public URL is {service_url}. Use the rollback_production tool -
     passing exactly these values plus previous_commit={previous_commit}
     - to actually revert production to that commit and restart the
-    service. Only do this because a test failure was already confirmed
+    services. Both matter: the reset reverts the whole checkout, so a
+    service left unrestarted keeps serving the reverted code from
+    memory. Only do this because a test failure was already confirmed
     above - never speculatively. After the tool runs, use its own
     reported post-rollback HTTP status to confirm whether the rollback
     itself succeeded; do not assume it worked.

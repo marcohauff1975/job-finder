@@ -38,6 +38,10 @@ def main() -> int:
     remote_user = _require("REMOTE_USER")
     remote_app_dir = _require("REMOTE_APP_DIR")
     service_name = _require("SERVICE_NAME")
+    # Optional: a box with only jobfinder.service still rolls back fine.
+    # When it is set, the rollback restarts it too - the reset reverts the
+    # whole checkout, so an unrestarted service serves reverted code.
+    admin_service_name = os.environ.get("ADMIN_SERVICE_NAME", "")
     service_url = _require("SERVICE_URL")
     previous_commit = _require("PREVIOUS_COMMIT")
     new_commit = _require("NEW_COMMIT")
@@ -76,6 +80,7 @@ def main() -> int:
         remote_user=remote_user,
         remote_app_dir=remote_app_dir,
         service_name=service_name,
+        admin_service_name=admin_service_name,
         service_url=service_url,
     )
     print(rollback_result)

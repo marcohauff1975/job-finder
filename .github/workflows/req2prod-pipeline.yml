@@ -298,6 +298,10 @@ jobs:
           REMOTE_USER: ${{ env.REMOTE_USER }}
           REMOTE_APP_DIR: ${{ env.REMOTE_APP_DIR }}
           SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          # rollback_agent restarts this too: `git reset --hard` reverts the
+          # whole checkout, so a service left running keeps serving the code
+          # the rollback just decided was bad.
+          ADMIN_SERVICE_NAME: ${{ env.ADMIN_SERVICE_NAME }}
           SERVICE_URL: ${{ env.PROD_URL }}
           PREVIOUS_COMMIT: ${{ steps.pre_deploy.outputs.previous_commit }}
           NEW_COMMIT: ${{ steps.diff.outputs.new_commit }}

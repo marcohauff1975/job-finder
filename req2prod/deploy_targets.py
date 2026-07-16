@@ -80,11 +80,22 @@ def services_to_restart(changed_paths: Iterable[str]) -> set[str]:
         path = raw.strip()
         if not path:
             continue
+        # Live code first, or the prefixes swallow things that aren't code at
+        # all: req2prod/lessons/*.md and req2prod/AGENT_INTELLIGENCE_PLAN.md
+        # start with "req2prod/", and config/agents.yaml starts with "config/".
+        # Matching on prefix alone restarted a service - dropping every live
+        # session on it - for editing a note. It also contradicted this
+        # module's own claim that only Python and the dependency list can
+        # change what a running process executes, and no test caught it
+        # because every non-code case tested (site/, docs/, .github/, infra/)
+        # happens to fall outside both prefixes.
+        if not _is_live_code(path):
+            continue
         if _is_admin_only(path):
             services.add(REQ2PROD)
         elif _is_public_only(path):
             services.add(JOBFINDER)
-        elif _is_live_code(path):
+        else:
             services.update((JOBFINDER, REQ2PROD))
     return services
 

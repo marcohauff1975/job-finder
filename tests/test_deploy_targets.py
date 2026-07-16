@@ -109,3 +109,32 @@ class TestTheCli:
         m.main()
 
         assert capsys.readouterr().out.strip() == ""
+
+
+class TestNonCodeUnderAClassifiedPrefix:
+    """The prefixes are matched only after _is_live_code, or they swallow
+    things that aren't code: req2prod/lessons/*.md starts with "req2prod/",
+    config/agents.yaml starts with "config/". Matching on prefix alone
+    restarted a service - dropping every live session on it - for editing a
+    note. Found by code_reviewer on PR #91; every non-code case tested before
+    (site/, docs/, .github/, infra/) happened to fall outside both prefixes,
+    so nothing caught it."""
+
+    def test_a_lessons_note_restarts_nothing(self):
+        assert services_to_restart(["req2prod/lessons/code_reviewer.md"]) == set()
+
+    def test_a_plan_document_under_req2prod_restarts_nothing(self):
+        assert services_to_restart(["req2prod/AGENT_INTELLIGENCE_PLAN.md"]) == set()
+
+    def test_job_finder_crew_config_restarts_nothing(self):
+        """config/agents.yaml matches the 'config/' prefix but isn't code.
+        The old rule keyed on `\\.py$` and never restarted for it either."""
+        assert services_to_restart(["config/agents.yaml"]) == set()
+
+    def test_an_asset_restarts_nothing(self):
+        assert services_to_restart(["assets/format_previews/one.png"]) == set()
+
+    def test_python_under_those_prefixes_still_restarts_its_own_service(self):
+        """The gate must not break the thing it guards."""
+        assert services_to_restart(["req2prod/admin_ui.py"]) == {REQ2PROD}
+        assert services_to_restart(["config/loader.py"]) == {JOBFINDER}
