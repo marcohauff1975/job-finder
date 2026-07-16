@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from req2prod import Req2Prod
+from req2prod import Req2Prod, backend
 
 
 @pytest.fixture(autouse=True)
@@ -196,7 +196,7 @@ class TestBuildFeature:
         assert captured["cwd"] == str(tmp_path)
         assert "Edit" not in captured["allowed_tools"]  # native Edit must never be granted here
         assert "Read" not in captured["allowed_tools"]  # native Read likewise
-        assert "Bash(python -m req2prod.tool_cli *)" == captured["allowed_tools"]
+        assert backend.TOOL_CLI_ALLOWED_TOOLS == captured["allowed_tools"]
         assert str(tmp_path) in captured["extra_prompt_context"]
 
     def test_rejects_a_fabricated_pr_url_same_as_api_mode(self, monkeypatch, tmp_path):

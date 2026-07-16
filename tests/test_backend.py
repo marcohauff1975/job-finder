@@ -6,6 +6,8 @@ touches the filesystem outside what a test explicitly sets up.
 """
 
 import json
+import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -53,9 +55,32 @@ class TestBashToolInstructions:
     def test_documents_the_exact_command_form(self):
         text = backend.bash_tool_instructions(["check_anthropic_model_id"])
 
-        assert "python -m req2prod.tool_cli" in text
+        assert backend.TOOL_CLI_COMMAND in text
         assert "<tool_name>" in text
         assert "--workspace-dir" not in text
+
+    def test_the_documented_interpreter_actually_exists(self):
+        """The command an agent is told to run has to resolve on the machine
+        it's told to run it on. A bare "python" doesn't exist on macOS - only
+        "python3" - and macOS is exactly what the self-hosted runner
+        subscription mode uses is, so this used to be a command no agent could
+        ever execute (see TOOL_CLI_COMMAND's own comment)."""
+        interpreter = backend.TOOL_CLI_COMMAND.split(" -m ")[0]
+
+        assert Path(interpreter).exists(), f"{interpreter} does not exist"
+        assert os.access(interpreter, os.X_OK), f"{interpreter} is not executable"
+
+    def test_the_granted_permission_matches_the_documented_command(self):
+        """The instruction and the allowlist are the two halves of one
+        contract: claude -p matches the command it's asked to run against
+        --allowedTools literally, so if these two ever disagree the agent is
+        told to run something it is not permitted to run - which fails as an
+        approval prompt in a context with nobody to approve it, not as an
+        error anyone would recognise."""
+        text = backend.bash_tool_instructions(["check_anthropic_model_id"])
+
+        assert backend.TOOL_CLI_ALLOWED_TOOLS == f"Bash({backend.TOOL_CLI_COMMAND} *)"
+        assert backend.TOOL_CLI_COMMAND in text
 
     def test_includes_workspace_dir_flag_when_given(self):
         text = backend.bash_tool_instructions(["File Writer Tool"], workspace_dir="/tmp/build-abc")
