@@ -184,9 +184,25 @@ def _format_architect_result(result) -> str:
 def _format_engineer_result(result) -> str:
     """Renders a FeatureBuildResult (see req2prod/Req2Prod.py) as the Software
     Engineer's chat bubble content."""
-    lines = ["**Senior Software Engineer**", "", f"**Branch:** `{result.branch_name}`"]
+    lines = ["**Senior Software Engineer**", ""]
+    # Lead with the outcome. The whole point of this step is that the
+    # requirement is now a real pull request in review - but that was a bare
+    # URL sitting above a long summary, so the one thing the user actually
+    # needs to know ("it's been pushed for merge, and here's what happens
+    # next") was the easiest thing to scroll past.
     if result.pr_url:
-        lines.append(f"**Pull request:** {result.pr_url}")
+        lines.append(
+            f"✅ **Pushed for review** — opened [pull request]({result.pr_url}). "
+            "Nothing is merged yet: code_reviewer reviews it automatically, and it "
+            "merges once it passes."
+        )
+    else:
+        lines.append(
+            "⚠️ **No pull request was opened** — this change has not been pushed "
+            "for review, so nothing will ship from it."
+        )
+    lines.append("")
+    lines.append(f"**Branch:** `{result.branch_name}`")
     lines.append("")
     lines.append(f"**Summary:** {result.summary}")
     if result.files_changed:
