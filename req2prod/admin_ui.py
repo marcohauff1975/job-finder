@@ -698,6 +698,68 @@ def render_req2prod_pipeline_tab() -> None:
             st.markdown("---")
 
 
+# --- Documentation tab ---------------------------------------------------
+# The same site/ tree that gets published to req2prod.nl, read straight from
+# this checkout rather than copied into here - the deploy syncs the whole
+# directory (see the pipeline's site sync), so the tab and the public site
+# can't drift apart.
+_SITE_DIR = Path(__file__).parent.parent / "site"
+
+# Rendered in the order a reader wants them: what Req2Prod is, then how it
+# works. Heights are the iframe's own viewport, not the content - each page
+# is far taller than any sensible panel, so they scroll internally rather
+# than being clipped (components.html can't size itself to its content).
+_DOC_PAGES = (
+    ("index.html", "Overview", 1500),
+    ("details.html", "How it works", 2200),
+)
+
+
+@st.cache_data(show_spinner=False)
+def _site_page_html(filename: str, mtime_ns: int) -> str:
+    """One site/ page, with its own site nav suppressed. mtime_ns isn't used
+    in the body - it's part of the cache key, so a redeploy that rewrites
+    site/ invalidates this without needing a restart.
+
+    Cached because every st.tabs() panel's code runs on every script rerun
+    whether or not that tab is the visible one (same Streamlit behaviour
+    render_req2prod_pipeline_tab's own refresh button exists to work
+    around) - without this, sitting on Request a New Feature would re-read
+    and re-send both files on every rerun of a live crew call.
+    """
+    html = (_SITE_DIR / filename).read_text(encoding="utf-8")
+    # The site's Home / More Details links are root-relative ("/",
+    # "/details.html"), which only resolve on req2prod.nl itself. In here
+    # both pages are already stacked on the same tab, so the nav has
+    # nothing to navigate to and would 404 against the Streamlit app.
+    return html.replace("</head>", "<style>.nav{display:none}</style></head>", 1)
+
+
+def render_documentation_tab() -> None:
+    """The "Documentation" admin tab: the public req2prod.nl site, embedded.
+
+    Each page goes in its own components.html iframe rather than being
+    concatenated into one document or injected via st.markdown: the two
+    pages share a design system (.head, .nav, .footer, bare h1/p/code
+    selectors), so merging them would let the second page's CSS restyle the
+    first, and injecting either one's <style> into the Streamlit page would
+    leak those bare selectors across the whole admin UI.
+    """
+    st.caption(
+        "The public req2prod.nl site, served from this deploy's own site/ "
+        "directory - so this is exactly what's live, not a copy of it. "
+        "Read-only."
+    )
+    for filename, label, height in _DOC_PAGES:
+        path = _SITE_DIR / filename
+        try:
+            html = _site_page_html(filename, path.stat().st_mtime_ns)
+        except OSError as exc:
+            st.warning(f"Couldn't read site/{filename} ({label}): {exc}")
+            continue
+        st.components.v1.html(html, height=height, scrolling=True)
+
+
 _AGENTS_YAML_PATH = Path(__file__).parent / "config" / "agents.yaml"
 _LESSONS_DIR = Path(__file__).parent / "lessons"
 

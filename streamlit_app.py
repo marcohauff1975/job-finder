@@ -50,7 +50,12 @@ from job_search import (
 from ai_viewer import render_sidebar_toggle, setup_layout
 from cto_cockpit_admin import render_architecture_tab, render_connectivity_tab, render_cost_tab
 from jobfinder_admin import render_overview_tab
-from req2prod.admin_ui import render_ai_models_tab, render_requirements_tab, render_req2prod_pipeline_tab
+from req2prod.admin_ui import (
+    render_ai_models_tab,
+    render_documentation_tab,
+    render_req2prod_pipeline_tab,
+    render_requirements_tab,
+)
 
 FORMAT_PREVIEWS_DIR = Path(__file__).parent / "assets" / "format_previews"
 
@@ -231,13 +236,17 @@ if st.query_params.get("admin") is not None:
         with tab_overview:
             render_overview_tab(UNLIMITED_USER)
         with tab_req2prod:
-            sub_pipeline, sub_requirements = st.tabs(
-                ["Pipeline", "Request a New Feature"]
+            # Ordered the way a change actually travels: describe it, watch it
+            # ship, then read how the machinery works.
+            sub_requirements, sub_pipeline, sub_documentation = st.tabs(
+                ["Request a New Feature", "Pipeline", "Documentation"]
             )
-            with sub_pipeline:
-                render_req2prod_pipeline_tab()
             with sub_requirements:
                 render_requirements_tab()
+            with sub_pipeline:
+                render_req2prod_pipeline_tab()
+            with sub_documentation:
+                render_documentation_tab()
         with tab_models:
             render_ai_models_tab()
         with tab_cto_cockpit:
