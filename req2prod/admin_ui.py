@@ -792,65 +792,50 @@ def render_req2prod_pipeline_tab() -> None:
 
 
 # --- Documentation tab ---------------------------------------------------
-# The same site/ tree that gets published to req2prod.nl, read straight from
-# this checkout rather than copied into here - the deploy syncs the whole
-# directory (see the pipeline's site sync), so the tab and the public site
-# can't drift apart.
-_SITE_DIR = Path(__file__).parent.parent / "site"
-
-# Rendered in the order a reader wants them: what Req2Prod is, then how it
-# works. Heights are the iframe's own viewport, not the content - each page
-# is far taller than any sensible panel, so they scroll internally rather
-# than being clipped (components.html can't size itself to its content).
-_DOC_PAGES = (
-    ("index.html", "Overview", 1500),
-    ("details.html", "How it works", 2200),
-)
-
-
-@st.cache_data(show_spinner=False)
-def _site_page_html(filename: str, mtime_ns: int) -> str:
-    """One site/ page, with its own site nav suppressed. mtime_ns isn't used
-    in the body - it's part of the cache key, so a redeploy that rewrites
-    site/ invalidates this without needing a restart.
-
-    Cached because every st.tabs() panel's code runs on every script rerun
-    whether or not that tab is the visible one (same Streamlit behaviour
-    render_req2prod_pipeline_tab's own refresh button exists to work
-    around) - without this, sitting on Request a New Feature would re-read
-    and re-send both files on every rerun of a live crew call.
-    """
-    html = (_SITE_DIR / filename).read_text(encoding="utf-8")
-    # The site's Home / More Details links are root-relative ("/",
-    # "/details.html"), which only resolve on req2prod.nl itself. In here
-    # both pages are already stacked on the same tab, so the nav has
-    # nothing to navigate to and would 404 against the Streamlit app.
-    return html.replace("</head>", "<style>.nav{display:none}</style></head>", 1)
+# The public site, published from this repo's own site/ tree - the deploy
+# syncs that whole directory to the server, so these URLs always serve the
+# same commit the app itself is running.
+REQ2PROD_SITE_URL = "https://req2prod.nl"
+REQ2PROD_DETAILS_URL = f"{REQ2PROD_SITE_URL}/details.html"
 
 
 def render_documentation_tab() -> None:
-    """The "Documentation" admin tab: the public req2prod.nl site, embedded.
+    """The "Documentation" admin tab: links out to the public req2prod.nl site.
 
-    Each page goes in its own components.html iframe rather than being
-    concatenated into one document or injected via st.markdown: the two
-    pages share a design system (.head, .nav, .footer, bare h1/p/code
-    selectors), so merging them would let the second page's CSS restyle the
-    first, and injecting either one's <style> into the Streamlit page would
-    leak those bare selectors across the whole admin UI.
+    This embedded both pages in iframes until the site had a public URL worth
+    pointing at - req2prod.nl was still a parked domain when the tab was
+    written, so there was nowhere to send anyone. Embedding was the worse
+    option even then, and measurably so once it could be measured:
+    components.html cannot size an iframe to its content, so both pages sat
+    behind nested scrollbars (details.html renders 6514px of content, which
+    no fixed height guesses correctly), and an 820px standalone page inside a
+    704px admin column reads as cramped at any height. Self-sizing the frames
+    fixes the scrollbars but needs Streamlit's own stElementContainer resized
+    too - private DOM internals, one upgrade away from breaking - and still
+    leaves two full marketing pages, heroes and footers and all, stacked
+    inside an admin tab.
+
+    Linking is simpler and can't drift from what's published, because it is
+    what's published. st.link_button opens a new tab, so the admin session
+    (and any crew call running in it) survives the click.
     """
+    st.markdown("### req2prod.nl")
     st.caption(
-        "The public req2prod.nl site, served from this deploy's own site/ "
-        "directory - so this is exactly what's live, not a copy of it. "
-        "Read-only."
+        "The public site, published straight from this repo's site/ directory "
+        "- the deploy syncs it, so what's live there is what's in this commit. "
+        "Opens in a new tab."
     )
-    for filename, label, height in _DOC_PAGES:
-        path = _SITE_DIR / filename
-        try:
-            html = _site_page_html(filename, path.stat().st_mtime_ns)
-        except OSError as exc:
-            st.warning(f"Couldn't read site/{filename} ({label}): {exc}")
-            continue
-        st.components.v1.html(html, height=height, scrolling=True)
+    overview, details = st.columns(2)
+    with overview:
+        st.link_button(
+            "Overview ↗", REQ2PROD_SITE_URL, type="primary", use_container_width=True
+        )
+        st.caption("What Req2Prod is: the agent crew, the feedback loops, the model tiering.")
+    with details:
+        st.link_button("How it works ↗", REQ2PROD_DETAILS_URL, use_container_width=True)
+        st.caption(
+            "The full path a change takes, from a typed requirement to a verified deploy."
+        )
 
 
 _AGENTS_YAML_PATH = Path(__file__).parent / "config" / "agents.yaml"
