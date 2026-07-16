@@ -11,6 +11,7 @@ lessons text twice. Skills isn't wired in yet, so that's still a
 "coming soon" placeholder.
 """
 
+from contextlib import nullcontext
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -180,3 +181,35 @@ class TestLatestBuildResult:
 
     def test_none_on_an_empty_conversation(self):
         assert m._latest_build_result([]) is None
+
+
+class TestDocumentationTabLinks:
+    """The tab is now two links to the deployed site rather than an embed of
+    it (see render_documentation_tab's docstring for why). Nothing here hits
+    the network - these pin the URLs to the files the deploy actually
+    publishes, so renaming one in site/ can't quietly leave a dead link."""
+
+    def test_urls_point_at_files_that_exist_in_site(self):
+        site = Path(__file__).parent.parent / "site"
+
+        assert m.REQ2PROD_SITE_URL == "https://req2prod.nl"
+        assert (site / "index.html").exists(), "the Overview link's target"
+        assert m.REQ2PROD_DETAILS_URL.endswith("/details.html")
+        assert (site / "details.html").exists(), "the How it works link's target"
+
+    def test_details_url_is_built_from_the_site_url(self):
+        """One host, not two literals that agree until someone moves it."""
+        assert m.REQ2PROD_DETAILS_URL.startswith(m.REQ2PROD_SITE_URL + "/")
+
+    def test_renders_two_links_and_no_iframe(self, monkeypatch):
+        links, htmls = [], []
+        monkeypatch.setattr(m.st, "link_button", lambda label, url, **kw: links.append((label, url)))
+        monkeypatch.setattr(m.st, "markdown", lambda *a, **kw: None)
+        monkeypatch.setattr(m.st, "caption", lambda *a, **kw: None)
+        monkeypatch.setattr(m.st, "columns", lambda n: (nullcontext(), nullcontext()))
+        monkeypatch.setattr(m.st.components.v1, "html", lambda *a, **kw: htmls.append(a))
+
+        m.render_documentation_tab()
+
+        assert [u for _, u in links] == [m.REQ2PROD_SITE_URL, m.REQ2PROD_DETAILS_URL]
+        assert htmls == [], "the embed is gone - no iframe should be rendered"
