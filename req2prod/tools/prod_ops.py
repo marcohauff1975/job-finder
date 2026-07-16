@@ -161,12 +161,12 @@ class ProdRollbackTool(BaseTool):
     name: str = "rollback_production"
     description: str = (
         "Actually reverts production to a specific earlier commit and "
-        "restarts the app service: runs `git reset --hard "
+        "restarts the app services: runs `git reset --hard "
         "<previous_commit>` in the app's directory on the server, "
-        "restarts the systemd service, and re-checks the public "
-        "domain's HTTP status afterward. Only call this after a "
-        "confirmed production health-check failure - never "
-        "speculatively. Requires the same short-lived SSH key as "
+        "restarts every systemd service running out of that directory, "
+        "and re-checks the public domain's HTTP status afterward. Only "
+        "call this after a confirmed production health-check failure - "
+        "never speculatively. Requires the same short-lived SSH key as "
         "check_production_health."
     )
 
@@ -179,6 +179,7 @@ class ProdRollbackTool(BaseTool):
         service_name: str,
         previous_commit: str,
         service_url: str,
+        admin_service_name: str = "",
     ) -> str:
         result: dict = {"target_commit": previous_commit}
         try:
@@ -189,11 +190,27 @@ class ProdRollbackTool(BaseTool):
             result["reset_exit_code"] = code
             result["reset_output"] = out or err
 
-            code, _, _ = _ssh_run(
-                key_path, remote_user, instance_ip,
-                f"sudo systemctl restart {service_name}",
-            )
-            result["restart_exit_code"] = code
+            # Every service out of this directory, not just the public app.
+            # `git reset --hard` above reverts the whole checkout - both apps'
+            # code - but each process runs from memory until restarted. Bounce
+            # only jobfinder and the admin console keeps serving the exact
+            # code this rollback just decided was bad, until some unrelated
+            # future deploy happens to touch an admin file. Found by
+            # code_reviewer on PR #91, which added the second service.
+            #
+            # admin_service_name is optional so the tool still works against a
+            # box that has only the one unit.
+            for unit in (service_name, admin_service_name):
+                if not unit:
+                    continue
+                code, _, _ = _ssh_run(
+                    key_path, remote_user, instance_ip,
+                    f"sudo systemctl restart {unit}",
+                )
+                result[f"restart_exit_code_{unit}"] = code
+                if unit == service_name:
+                    # Kept for callers/tests reading the original key.
+                    result["restart_exit_code"] = code
 
             _, out, _ = _ssh_run(
                 key_path, remote_user, instance_ip,

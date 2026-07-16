@@ -1015,6 +1015,7 @@ def rollback(
     remote_app_dir: str,
     service_name: str,
     service_url: str,
+    admin_service_name: str = "",
 ) -> RollbackResult | None:
     """Run the rollback crew and return the structured result, or None
     if it failed. Only meant to be called after a confirmed
@@ -1031,6 +1032,9 @@ def rollback(
         "remote_user": remote_user,
         "remote_app_dir": remote_app_dir,
         "service_name": service_name,
+        # The whole checkout gets reset, so every process running out of it is
+        # holding reverted code until restarted - see ProdRollbackTool.
+        "admin_service_name": admin_service_name,
         "service_url": service_url,
     }
     return run_agent(
