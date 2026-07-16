@@ -472,9 +472,9 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Create: `infra/nginx-req2prod.conf`
 
 **Interfaces:**
-- Consumes: `site/main/index.html` from Task 2, published to
-  `/var/www/req2prod.nl/main/index.html` by `infra/sync-site.sh`.
-- Produces: `https://req2prod.nl/main` serving the page over TLS.
+- Consumes: `site/index.html` and `site/details.html`, published to
+  `/var/www/req2prod.nl/` by `infra/sync-site.sh`.
+- Produces: `https://req2prod.nl/` and `https://req2prod.nl/details.html` over TLS.
 
 - [ ] **Step 1 (agent): Create the pre-certbot server block**
 
@@ -497,13 +497,10 @@ server {
 
     root /var/www/req2prod.nl;
 
-    # No homepage exists yet. /main is the URL that gets shared and must never
-    # move, so it does not live at the root. Delete this block when a real
-    # homepage lands at site/index.html; try_files will then serve it.
-    location = / {
-        return 301 /main;
-    }
-
+    # site/index.html is the homepage and try_files serves it at /. An earlier
+    # draft parked the one-pager at /main and redirected / to it, because no
+    # homepage existed then. One exists now, and both pages' nav links to / and
+    # /details.html, so a root redirect would break Home. Do not add one.
     location / {
         try_files $uri $uri/ =404;
     }
@@ -609,22 +606,21 @@ the port-80 redirect, then reloads nginx itself.
 - [ ] **Step 9 (Marco): Verify by content, from the Mac**
 
 ```
-curl -fsS https://req2prod.nl/main | grep -o "<title>[^<]*</title>"
+curl -fsS https://req2prod.nl/ | grep -o "<title>[^<]*</title>"
+curl -fsS https://req2prod.nl/details.html | grep -o "<title>[^<]*</title>"
 ```
 
-Expected: `<title>Req2Prod — Overview</title>`.
+Expected: `<title>Req2Prod — Overview</title>` then
+`<title>Req2Prod &mdash; Requirement to production</title>`.
+
+Both pages' nav links to `/` and `/details.html`, so both must resolve or the
+nav is broken.
 
 `<title>Streamlit</title>` means the server block is not active and the request
 fell through to the job-finder default — do not proceed, and check
 `sudo tail -5 /var/log/nginx/error.log`.
 
-Also confirm the root redirect and that the app is undisturbed:
-
-```
-curl -sI https://req2prod.nl/ | grep -iE "^HTTP|^location"
-```
-
-Expected: `301` and `location: /main`.
+Also confirm the app is undisturbed:
 
 ```
 curl -fsS https://yourmagicaljobfinder.online/ | grep -o "<title>[^<]*</title>"
@@ -654,7 +650,7 @@ exist sends investors to a 404.
 - Modify: `infra/nginx-jobfinder.conf` (the `location = /req2prod` block)
 
 **Interfaces:**
-- Consumes: a verified-live `https://req2prod.nl/main` from Task 3.
+- Consumes: a verified-live `https://req2prod.nl/` from Task 3.
 
 - [ ] **Step 1: Write the failing verification**
 
@@ -693,7 +689,7 @@ Replace with:
     # The one-pager moved to its own domain. Kept as a permanent redirect because
     # this URL was shared publicly before the move -- see infra/README-site.md.
     location = /req2prod {
-        return 301 https://req2prod.nl/main;
+        return 301 https://req2prod.nl/;
     }
 ```
 
@@ -746,7 +742,7 @@ curl -sI https://yourmagicaljobfinder.online/req2prod | grep -iE "^HTTP|^locatio
 ```
 
 Expected (passing): `HTTP/1.1 301 Moved Permanently` and
-`location: https://req2prod.nl/main`.
+`location: https://req2prod.nl/`.
 
 Then confirm the redirect actually lands on the page:
 
@@ -836,9 +832,9 @@ and the site cannot accumulate orphans.
 
 ## Done when
 
-- `https://req2prod.nl/main` serves the one-pager over TLS, verified by content.
-- `https://req2prod.nl/` 301s to `/main`.
-- `https://yourmagicaljobfinder.online/req2prod` 301s to `https://req2prod.nl/main`.
+- `https://req2prod.nl/` serves the one-pager over TLS, verified by content.
+- `https://req2prod.nl/details.html` serves the details page, verified by content.
+- `https://yourmagicaljobfinder.online/req2prod` 301s to `https://req2prod.nl/`.
 - `https://yourmagicaljobfinder.online/` still serves Streamlit, unaffected.
 - Adding and removing `site/test-page/` published and unpublished it with no
   nginx or workflow change (Task 5).

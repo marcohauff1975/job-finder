@@ -35,6 +35,15 @@
   .tagpill{font-size:10.5px;color:var(--muted);border:1px solid var(--border);background:var(--panel);
     padding:4px 11px;border-radius:100px;letter-spacing:.4px}
 
+  /* site nav — screen only; hidden in the PDF export */
+  .nav{display:flex;gap:8px;margin-top:12px;position:relative;z-index:3}
+  .nav a{font-size:11px;font-weight:600;letter-spacing:.4px;padding:6px 15px;border-radius:100px;
+    border:1px solid var(--border);background:var(--panel);color:var(--muted);text-decoration:none}
+  .nav a:hover{color:var(--text);border-color:rgba(241,245,249,.24)}
+  .nav a[aria-current="page"]{background:var(--accentdim);border-color:rgba(129,140,248,.45);color:#a9b0ff}
+  .nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  @media print{.nav{display:none}}
+
   h1{font-size:25px;line-height:1.1;letter-spacing:-.8px;font-weight:800;margin:18px 0 8px;position:relative;z-index:2}
   .grad{color:#c3c9ff}
   .hero-tag{font-size:13.5px;font-weight:600;color:#a5adf7;letter-spacing:.2px;margin:0 0 14px;position:relative;z-index:2}
@@ -124,6 +133,11 @@
       <span class="wm mono">req<span class="accent">2</span>prod</span>
     </div>
   </div>
+
+  <nav class="nav" aria-label="Site">
+    <a href="/" aria-current="page">Home</a>
+    <a href="/details.html">More Details</a>
+  </nav>
 
   <h1>Autonomous software delivery,<br><span class="grad">from requirement to production.</span></h1>
   <div class="hero-tag">Unattended, LLM-agnostic, agentic SDLC orchestration</div>
