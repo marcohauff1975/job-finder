@@ -669,7 +669,12 @@ def render_requirements_tab() -> None:
         # Side by side, because they're the two answers to one question - ship
         # it, or say more first. The trailing column keeps them button-sized
         # rather than stretching each across half the page.
-        push_col, refine_col, _ = st.columns([1, 1, 2])
+        # Equal columns, no spacer: "Push to Software Engineer" wrapped to two
+        # lines at a quarter width while "Add something first" didn't, so the
+        # pair rendered at different heights. Both primary - they're the two
+        # answers to one question, and styling one as secondary implied a
+        # default that isn't there.
+        push_col, refine_col = st.columns(2)
         push_clicked = push_col.button(
             "🚀 Push to Software Engineer",
             key="rc_push_to_engineer",
@@ -679,7 +684,10 @@ def render_requirements_tab() -> None:
         # Only offered while the box is hidden - once it's back, it's already
         # there to add to.
         if awaiting_push and refine_col.button(
-            "✏️ Add something first", key="rc_refine", use_container_width=True
+            "✏️ Add something first",
+            key="rc_refine",
+            type="primary",
+            use_container_width=True,
         ):
             st.session_state["rc_refine_open"] = True
             st.rerun()
