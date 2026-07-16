@@ -162,6 +162,7 @@ def run_via_subscription(
     cwd: str,
     allowed_tools: str = "",
     extra_prompt_context: str = "",
+    on_unparsed: Callable[[str], None] | None = None,
 ) -> T | None:
     """Run one agent turn as a headless `claude -p` call instead of a
     CrewAI/Anthropic-API call, parsing the response into the same
@@ -172,7 +173,14 @@ def run_via_subscription(
     and for threading prior tasks' results into a multi-step chain (see
     e.g. review_project_readiness/challenge_requirement in Req2Prod.py),
     mirroring what CrewAI's own Task(context=[...]) chaining does in API
-    mode."""
+    mode.
+
+    on_unparsed, if given, receives the agent's raw reply when it can't be
+    read as the requested JSON. That still returns None - the contract is
+    unchanged for every caller that doesn't pass it - but it lets one that
+    can do something with the reply see it. build_feature() uses it: an
+    engineer that answers with a question rather than a PR is saying
+    something worth showing, not failing."""
     schema = json.dumps(output_model.model_json_schema())
     context_block = f"\n\n{extra_prompt_context}" if extra_prompt_context else ""
     prompt = (
@@ -240,6 +248,12 @@ def run_via_subscription(
     json_text = _extract_json_object(result_text)
     if json_text is None:
         print(f"::error::no JSON object found in claude -p's response: {result_text[:500]}")
+        # An answer that isn't JSON isn't always a malfunction - the agent may
+        # simply have had something to say. Callers that can do something with
+        # that pass on_unparsed; everyone else still just gets None, so this
+        # changes nothing for them.
+        if on_unparsed is not None and result_text.strip():
+            on_unparsed(result_text.strip())
         return None
 
     try:

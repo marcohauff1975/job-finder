@@ -232,3 +232,111 @@ class TestBuildFeature:
 
         with pytest.raises(ValueError):
             Req2Prod.build_feature(pm, architect)
+
+
+class TestEngineerQuestionIsNotAFailure:
+    """The engineer is told to answer with a FeatureBuildResult, so anything
+    else parses as nothing. It used to become None, which the UI could only
+    render as "Something went wrong and no build result was produced" - so on
+    2026-07-16, "the feature you asked for already exists" arrived looking
+    like a malfunction and cost an SSH into production to read."""
+
+    _REAL_PROSE = (
+        "I should clarify: was this task given to me in error, because the "
+        "feature already exists in streamlit_app.py?"
+    )
+
+    @contextmanager
+    def _fake_workspace(self, path=None):
+        yield path
+
+    def _ready_inputs(self):
+        return (
+            Req2Prod.FeatureRequirementsResult(user_story="s", ready_for_development=True),
+            Req2Prod.ArchitectureDirectionResult(
+                builds_on_existing_app=True, technical_notes="n", ready_for_development=True
+            ),
+        )
+
+    def test_api_path_returns_the_prose_out_of_the_validation_error(self, monkeypatch):
+        """CrewAI's handle_partial_json re-raises a bare ValidationError when
+        the final answer isn't clean JSON. The answer is in the error."""
+        pm, architect = self._ready_inputs()
+        monkeypatch.delenv("AGENT_BACKEND", raising=False)
+        monkeypatch.setattr(Req2Prod, "build_workspace", lambda: self._fake_workspace())
+
+        prose = self._REAL_PROSE
+
+        class CrewThatGetsProseBack:
+            def kickoff(self, inputs=None):
+                # CrewAI validates the agent's final answer against
+                # output_pydantic and re-raises when it isn't clean JSON.
+                Req2Prod.FeatureBuildResult.model_validate({"summary": prose})
+
+        # Crew is itself a pydantic model, so its methods can't be patched -
+        # replace the whole object.
+        monkeypatch.setattr(Req2Prod, "feature_build_crew", CrewThatGetsProseBack())
+
+        result = Req2Prod.build_feature(pm, architect)
+
+        assert isinstance(result, Req2Prod.EngineerQuestion)
+        assert result.question == self._REAL_PROSE
+
+    def test_a_real_infrastructure_failure_is_still_None(self, monkeypatch):
+        """The ValidationError catch is narrow on purpose - a failed
+        build_workspace() clone (no GITHUB_PR_PUSH_TOKEN) is a real failure and
+        must not be dressed up as the engineer having a question."""
+        pm, architect = self._ready_inputs()
+        monkeypatch.delenv("AGENT_BACKEND", raising=False)
+
+        def boom():
+            raise RuntimeError("GITHUB_PR_PUSH_TOKEN is not set")
+
+        monkeypatch.setattr(Req2Prod, "build_workspace", boom)
+
+        assert Req2Prod.build_feature(pm, architect) is None
+
+    def test_subscription_path_returns_the_unparsed_reply(self, monkeypatch, tmp_path):
+        pm, architect = self._ready_inputs()
+        monkeypatch.setenv("AGENT_BACKEND", "subscription")
+        monkeypatch.setattr(Req2Prod, "build_workspace", lambda: self._fake_workspace(tmp_path))
+
+        def fake_run_via_subscription(**kwargs):
+            # what backend.py does when the reply carries no JSON object
+            kwargs["on_unparsed"](self._REAL_PROSE)
+            return None
+
+        monkeypatch.setattr(Req2Prod, "run_via_subscription", fake_run_via_subscription)
+
+        result = Req2Prod.build_feature(pm, architect)
+
+        assert isinstance(result, Req2Prod.EngineerQuestion)
+        assert result.question == self._REAL_PROSE
+
+    def test_subscription_path_with_no_reply_at_all_is_still_None(self, monkeypatch, tmp_path):
+        """Nothing said is a failure; something said isn't."""
+        pm, architect = self._ready_inputs()
+        monkeypatch.setenv("AGENT_BACKEND", "subscription")
+        monkeypatch.setattr(Req2Prod, "build_workspace", lambda: self._fake_workspace(tmp_path))
+        monkeypatch.setattr(Req2Prod, "run_via_subscription", lambda **kw: None)
+
+        assert Req2Prod.build_feature(pm, architect) is None
+
+    def test_a_real_build_is_unaffected(self, monkeypatch, tmp_path):
+        pm, architect = self._ready_inputs()
+        monkeypatch.setenv("AGENT_BACKEND", "subscription")
+        monkeypatch.setattr(Req2Prod, "build_workspace", lambda: self._fake_workspace(tmp_path))
+        monkeypatch.setattr(
+            Req2Prod,
+            "run_via_subscription",
+            lambda **kw: Req2Prod.FeatureBuildResult(
+                branch_name="feature/x",
+                summary="done",
+                pr_url="https://github.com/marcohauff1975/job-finder/pull/99",
+            ),
+        )
+
+        result = Req2Prod.build_feature(pm, architect)
+
+        assert isinstance(result, Req2Prod.FeatureBuildResult)
+        assert result.pr_url.endswith("/99")
