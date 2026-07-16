@@ -11,6 +11,7 @@ lessons text twice. Skills isn't wired in yet, so that's still a
 "coming soon" placeholder.
 """
 
+import inspect
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -213,3 +214,55 @@ class TestDocumentationTabLinks:
 
         assert [u for _, u in links] == [m.REQ2PROD_SITE_URL, m.REQ2PROD_DETAILS_URL]
         assert htmls == [], "the embed is gone - no iframe should be rendered"
+
+
+class TestInputHiddenWhileAwaitingPush:
+    """Both agents ready means the page is asking one question - push it or
+    don't - so the "describe a feature" box stops applying and only competes
+    with the answer. These pin the state machine around hiding it, because
+    hiding it naively is a trap: st.chat_input is the only way to add a
+    message and there is no session switcher to start over with."""
+
+    @staticmethod
+    def _ready_messages():
+        return [
+            {"role": "user", "content": "add a thing"},
+            {"role": "product_manager", "content": "spec",
+             "data": {"user_story": "s", "ready_for_development": True}},
+            {"role": "software_architect", "content": "direction",
+             "data": {"builds_on_existing_app": True, "technical_notes": "n",
+                      "ready_for_development": True}},
+        ]
+
+    def test_ready_pair_is_what_gates_the_box(self):
+        """The gate is real: this pair is exactly the state that shows Push."""
+        assert m._latest_ready_pair(self._ready_messages()) is not None
+
+    def test_a_later_message_reopens_the_box_on_its_own(self):
+        """No flag needed - saying anything makes the verdict stale, which is
+        what returns the page to the ordinary conversation flow."""
+        messages = self._ready_messages() + [{"role": "user", "content": "also do X"}]
+
+        assert m._latest_ready_pair(messages) is None
+
+    def test_demo_buttons_ask_for_the_box_back(self):
+        """A demo prefills the box, and the injector silently gives up when
+        there's no textarea - so a demo click while Push is showing has to
+        reopen it, or it reads as a dead button."""
+        source = inspect.getsource(m.render_requirements_tab)
+        demo_block = source.split("Demo prefill buttons")[1].split("current_deploy_mode")[0]
+
+        assert demo_block.count('st.session_state["rc_refine_open"] = True') == 2
+
+    def test_the_injector_is_skipped_while_the_box_is_hidden(self):
+        source = inspect.getsource(m.render_requirements_tab)
+
+        assert "if not awaiting_push:\n        _prefill_chat_input_if_requested()" in source
+
+    def test_submitting_clears_the_refine_escape(self):
+        """It was opened for this message, and the message makes ready_pair
+        None by itself - leaving it set would hold the box open through the
+        next ready verdict too."""
+        source = inspect.getsource(m.render_requirements_tab)
+
+        assert 'st.session_state.pop("rc_refine_open", None)' in source
