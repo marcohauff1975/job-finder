@@ -588,6 +588,13 @@ feature_build_task:
     {pm_requirements}
     The Software Architect's approved technical direction is:
     {architecture_direction}
+    The user's original, verbatim feature request is below. The
+    requirements above are a summary of it, so whenever they refer to
+    exact content they describe but don't reproduce (an inline SVG, a
+    code snippet, specific copy, an exact id or string), take it
+    verbatim from here rather than inventing your own version or asking
+    where it is - it is already in front of you:
+    {original_request}
     Both were already confirmed ready for development before you were
     handed this task - implement it in this repository (crewai-starter).
     The main Streamlit app is streamlit_app.py at the repository root -

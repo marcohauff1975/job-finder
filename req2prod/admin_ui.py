@@ -121,6 +121,21 @@ def _run_with_retry(func, *args, retries=1, **kwargs):
     raise last_error
 
 
+def _original_request_text(messages: list[dict]) -> str:
+    """The user's own messages from this conversation, verbatim - the
+    request exactly as they wrote it (plus any answers they gave to open
+    questions), before product_manager summarized it into a user story.
+
+    build_feature() passes this to software_engineer alongside the PM's
+    requirements: the summary refers to exact content the request carried
+    (e.g. the demo logo request embeds the precise inline SVG) without
+    reproducing it, so without the verbatim text the engineer has no way
+    to honour it and correctly refuses to invent its own."""
+    return "\n\n".join(
+        message["content"] for message in messages if message.get("role") == "user"
+    )
+
+
 def _format_pm_result(result) -> str:
     """Renders a FeatureRequirementsResult (see req2prod/Req2Prod.py) as the
     Product Manager's chat bubble content."""
@@ -521,7 +536,12 @@ def render_requirements_tab() -> None:
             print(f"[DIAG] rc_push_to_engineer clicked, session={session_id}", flush=True)
             with st.spinner("👷 Software Engineer is building this feature..."):
                 try:
-                    build_result = _run_with_retry(build_feature, pm_result, architect_result)
+                    build_result = _run_with_retry(
+                        build_feature,
+                        pm_result,
+                        architect_result,
+                        _original_request_text(messages),
+                    )
                     print(f"[DIAG] build_feature returned, got_result={build_result is not None}", flush=True)
                 except Exception as e:
                     error = f"The build failed: {e}"
