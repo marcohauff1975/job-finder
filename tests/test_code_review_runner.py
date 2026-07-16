@@ -325,3 +325,119 @@ class TestReviewCodeTransientRetry:
 
         assert exit_code == 0
         assert calls["review"] == runner.MAX_TRANSIENT_RETRIES + 1
+
+
+def _workflow_diff(*paths):
+    """A diff in the shape `gh pr diff` actually emits."""
+    out = []
+    for p in paths:
+        out += [f"diff --git a/{p} b/{p}", f"--- a/{p}", f"+++ b/{p}", "@@ -1 +1 @@", "-old", "+new"]
+    return "\n".join(out)
+
+
+class TestDetectingAWorkflowInTheDiff:
+    def test_a_workflow_file_is_detected(self):
+        assert runner._touches_a_workflow(_workflow_diff(".github/workflows/pipeline.yml")) is True
+
+    def test_an_ordinary_diff_is_not(self):
+        assert runner._touches_a_workflow(_workflow_diff("job_search.py", "auth.py")) is False
+
+    def test_one_workflow_among_many_files_still_counts(self):
+        """Git pushes all or nothing - one workflow file poisons the whole
+        push, which is exactly what happened on #91."""
+        diff = _workflow_diff("req2prod/deploy_targets.py", ".github/workflows/p.yml", "auth.py")
+
+        assert runner._touches_a_workflow(diff) is True
+
+    def test_other_things_under_dot_github_are_fine(self):
+        """Only workflows are locked - an issue template pushes like any other
+        file, so those must keep the fix loop."""
+        assert runner._touches_a_workflow(_workflow_diff(".github/CODEOWNERS")) is False
+
+    def test_a_path_merely_mentioning_workflows_is_not_one(self):
+        assert runner._touches_a_workflow(_workflow_diff("docs/workflows.md")) is False
+
+    def test_added_content_naming_the_path_is_not_a_header(self):
+        """Only +++ b/ lines name files. A naive substring search fires on
+        this - the line is code, not a header."""
+        diff = (
+            "--- a/req2prod/deploy_targets.py\n"
+            "+++ b/req2prod/deploy_targets.py\n"
+            '+_WORKFLOW_DIR = ".github/workflows/"\n'
+        )
+
+        assert runner._touches_a_workflow(diff) is False
+
+
+class TestWorkflowDiffsSkipTheFixLoop:
+    """GitHub rejects PAT pushes to workflow files even with full repo write.
+    On #91 pr_fix_agent fixed two real findings, the re-review passed, and the
+    push was rejected - losing every fix. Review still runs; only the fixing
+    stops, and pr_arbiter still gets the last word."""
+
+    def test_pr_fix_agent_never_runs_for_a_workflow_diff(
+        self, fake_subprocess, monkeypatch, env
+    ):
+        env.write_text(_workflow_diff(".github/workflows/req2prod-pipeline.yml"))
+        fix_calls = []
+        monkeypatch.setattr(
+            runner,
+            "review_code",
+            lambda diff: CodeReviewResult(
+                passed=False,
+                findings=[CodeReviewFinding(file=".github/workflows/p.yml", risk="bad")],
+            ),
+        )
+        monkeypatch.setattr(
+            runner, "fix_review_findings", lambda f: fix_calls.append(f) or PRFixResult(fix_summary="x")
+        )
+        monkeypatch.setattr(
+            runner,
+            "arbiter_review",
+            lambda diff, findings: ArbiterVerdict(safe_to_merge=True, reasoning="fine"),
+        )
+
+        assert runner.main() == 0
+        assert fix_calls == [], "a fix here could not have been pushed"
+
+    def test_the_findings_still_reach_pr_arbiter(self, fake_subprocess, monkeypatch, env):
+        """Skipping the fix loop must not mean skipping the review."""
+        env.write_text(_workflow_diff(".github/workflows/req2prod-pipeline.yml"))
+        seen = {}
+        monkeypatch.setattr(
+            runner,
+            "review_code",
+            lambda diff: CodeReviewResult(
+                passed=False,
+                findings=[CodeReviewFinding(file=".github/workflows/p.yml", risk="the real finding")],
+            ),
+        )
+        monkeypatch.setattr(runner, "fix_review_findings", lambda f: None)
+
+        def fake_arbiter(diff, findings):
+            seen["findings"] = findings
+            return ArbiterVerdict(safe_to_merge=False, reasoning="no", blocking_reasons=["r"])
+
+        monkeypatch.setattr(runner, "arbiter_review", fake_arbiter)
+        monkeypatch.setattr(runner, "send_pr_unresolvable_notification", lambda *a: None)
+
+        runner.main()
+
+        assert [f.risk for f in seen["findings"]] == ["the real finding"]
+
+    def test_an_ordinary_diff_still_gets_fixed(self, fake_subprocess, monkeypatch):
+        """The guard must not disable the fix loop generally."""
+        fix_calls = []
+        results = iter([
+            CodeReviewResult(passed=False, findings=[CodeReviewFinding(file="app.py", risk="eval")]),
+            CodeReviewResult(passed=True, findings=[]),
+        ])
+        monkeypatch.setattr(runner, "review_code", lambda diff: next(results))
+        monkeypatch.setattr(
+            runner,
+            "fix_review_findings",
+            lambda f: fix_calls.append(f) or PRFixResult(files_changed=["app.py"], fix_summary="fixed"),
+        )
+
+        assert runner.main() == 0
+        assert len(fix_calls) == 1

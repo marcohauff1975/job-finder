@@ -237,6 +237,38 @@ def _commit_and_push_accumulated_fixes(changed_files: list[str]) -> bool:
     return True
 
 
+# GitHub refuses to let a Personal Access Token create or update anything under
+# here, even one with full repo write - a separate lock from ordinary write
+# access, and a deliberate one: a token that can rewrite CI can rewrite the
+# thing that is checking it. REVIEWER_BOT_TOKEN has write (it merges these PRs)
+# and still can't touch this directory.
+_WORKFLOW_DIR = ".github/workflows/"
+
+
+def _touches_a_workflow(diff: str) -> bool:
+    """Would pushing a fix for this diff be rejected outright?
+
+    Observed on PR #91: code_reviewer raised two real findings, pr_fix_agent
+    fixed both, the re-review passed, and the push was rejected because one of
+    the fixed files lived under .github/workflows/. Git pushes all or nothing,
+    so that one file took every other fix with it - a whole review's work
+    done, then dropped, and reported as a plain failure.
+
+    Rather than grant the workflow scope (which would let an agent edit the
+    pipeline that reviews it - GitHub's default is the right one), the fix
+    loop is skipped for these and pr_arbiter decides on the findings as they
+    stand. The findings still reach Marco; only the automatic fixing stops.
+    """
+    # Check "+++ b/" (new/modified path) and "--- a/" (old path, present even
+    # on a pure deletion where the new side is "+++ /dev/null" with no "b/").
+    prefixes = ("+++ b/", "--- a/")
+    return any(
+        line.startswith(prefix) and line[len(prefix):].startswith(_WORKFLOW_DIR)
+        for line in diff.splitlines()
+        for prefix in prefixes
+    )
+
+
 def main() -> int:
     diff_file = _require("DIFF_FILE")
     pr_number = _require("PR_NUMBER")
@@ -254,6 +286,18 @@ def main() -> int:
     result: CodeReviewResult | None = None
     review_infra_failure = False  # code_reviewer never produced a result at all,
     # as opposed to producing one with findings - see below
+
+    # A fix for one of these can't be pushed, so producing one only wastes a
+    # crew call and then loses it. Review still happens; pr_arbiter still gets
+    # the last word. See _touches_a_workflow.
+    fixes_are_pushable = not _touches_a_workflow(diff)
+    if not fixes_are_pushable:
+        print(
+            f"=== {_WORKFLOW_DIR} in the diff - reviewing without the fix loop ===\n"
+            "    GitHub rejects PAT pushes to workflow files, so a fix here "
+            "could not be saved.\n"
+            "    Findings go to pr_arbiter as they stand."
+        )
 
     for attempt in range(MAX_FIX_ATTEMPTS + 1):
         print(f"=== Running code_reviewer (round {attempt + 1}) ===")
@@ -282,6 +326,8 @@ def main() -> int:
             break
 
         last_findings = result.findings
+        if not fixes_are_pushable:
+            break  # nothing pr_fix_agent wrote here could be pushed
         if attempt >= MAX_FIX_ATTEMPTS:
             break  # findings remain, but the fix loop is out of attempts
 
