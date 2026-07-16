@@ -123,6 +123,21 @@ DEMO_REMOVE_LOGO_REQUIREMENT = (
 )
 
 
+def _seed_demo_request(text: str) -> None:
+    """Drop a ready-made request into the chat input, ready to review and send.
+
+    Nothing runs here: the demo goes out through the same ↑ send button as a
+    typed message, so it exercises the real flow rather than a shortcut past
+    it. The nonce makes the browser inject this exact text once per click
+    (see _prefill_chat_input_if_requested's guard), and rc_refine_open asks
+    for the input box back - a demo needs the box it prefills to exist, and
+    the box is hidden while a requirement is waiting to be pushed, so without
+    this the button would look dead."""
+    st.session_state["rc_demo_inject"] = text
+    st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
+    st.session_state["rc_refine_open"] = True
+
+
 def _run_with_retry(func, *args, retries=1, **kwargs):
     """Run func(*args, **kwargs), retrying on failure (useful for flaky
     network/API calls). Re-raises the last error if all attempts fail.
@@ -513,24 +528,30 @@ def render_requirements_tab() -> None:
     # it and hits the same ↑ send button as any typed message, so the demo runs
     # through the exact same flow as the rest of the page (challenge -> Push to
     # Software Engineer -> PR -> merge -> deploy). Nothing runs on this click.
-    st.caption("🎬 Demo — prefill a ready-made request into the box below, then send it like any other:")
-    demo_add_col, demo_remove_col = st.columns(2)
-    # Bump a nonce on each click so the browser injects the fresh text exactly
-    # once (see _prefill_chat_input_if_requested's nonce guard).
-    if demo_add_col.button("➕ Demo: Add Req2Prod Logo", key="rc_demo_add"):
-        st.session_state["rc_demo_inject"] = DEMO_ADD_LOGO_REQUIREMENT
-        st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
-        # A demo needs the box it prefills to exist, so asking for one is also
-        # asking for the box back - otherwise clicking this while a requirement
-        # is waiting to be pushed would look like a dead button.
-        st.session_state["rc_refine_open"] = True
-    if demo_remove_col.button("➖ Demo: Remove Req2Prod Logo", key="rc_demo_remove"):
-        st.session_state["rc_demo_inject"] = DEMO_REMOVE_LOGO_REQUIREMENT
-        st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
-        # A demo needs the box it prefills to exist, so asking for one is also
-        # asking for the box back - otherwise clicking this while a requirement
-        # is waiting to be pushed would look like a dead button.
-        st.session_state["rc_refine_open"] = True
+    #
+    # Behind a toggle, off by default: these are presentation props, and this
+    # is the page for describing a real feature. A toggle rather than a tab of
+    # their own because every st.tabs() panel's code runs on every rerun
+    # whether or not it's the visible one, so a second tab rendering this same
+    # page would put every widget on it in the script twice - two chat inputs,
+    # two "Push to Software Engineer" buttons with the same key. One page,
+    # one set of widgets, and the props appear when they're wanted.
+    demo_mode = st.toggle(
+        "🎬 Demo mode",
+        key="rc_demo_mode",
+        help="Show the ready-made demo requests. Off for ordinary use.",
+    )
+    if demo_mode:
+        st.caption(
+            "🎬 Demo — prefill a ready-made request into the box below, then send it like any other:"
+        )
+        demo_add_col, demo_remove_col = st.columns(2)
+        # Bump a nonce on each click so the browser injects the fresh text exactly
+        # once (see _prefill_chat_input_if_requested's nonce guard).
+        if demo_add_col.button("➕ Demo: Add Req2Prod Logo", key="rc_demo_add"):
+            _seed_demo_request(DEMO_ADD_LOGO_REQUIREMENT)
+        if demo_remove_col.button("➖ Demo: Remove Req2Prod Logo", key="rc_demo_remove"):
+            _seed_demo_request(DEMO_REMOVE_LOGO_REQUIREMENT)
 
     current_deploy_mode = get_auto_deploy_mode()
     is_live_deploy_mode = current_deploy_mode is not None

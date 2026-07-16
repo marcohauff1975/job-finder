@@ -245,14 +245,25 @@ class TestInputHiddenWhileAwaitingPush:
 
         assert m._latest_ready_pair(messages) is None
 
-    def test_demo_buttons_ask_for_the_box_back(self):
+    def test_seeding_a_demo_asks_for_the_box_back(self, monkeypatch):
         """A demo prefills the box, and the injector silently gives up when
-        there's no textarea - so a demo click while Push is showing has to
-        reopen it, or it reads as a dead button."""
-        source = inspect.getsource(m.render_requirements_tab)
-        demo_block = source.split("Demo prefill buttons")[1].split("current_deploy_mode")[0]
+        there's no textarea - so seeding one while Push is showing has to
+        reopen it, or the button reads as dead."""
+        state = {}
+        monkeypatch.setattr(m.st, "session_state", state)
 
-        assert demo_block.count('st.session_state["rc_refine_open"] = True') == 2
+        m._seed_demo_request("a ready-made request")
+
+        assert state["rc_demo_inject"] == "a ready-made request"
+        assert state["rc_refine_open"] is True
+
+    def test_seeding_bumps_the_nonce_so_each_click_injects_once(self, monkeypatch):
+        state = {"rc_demo_nonce": 4}
+        monkeypatch.setattr(m.st, "session_state", state)
+
+        m._seed_demo_request("another one")
+
+        assert state["rc_demo_nonce"] == 5
 
     def test_the_injector_is_skipped_while_the_box_is_hidden(self):
         source = inspect.getsource(m.render_requirements_tab)
@@ -266,3 +277,53 @@ class TestInputHiddenWhileAwaitingPush:
         source = inspect.getsource(m.render_requirements_tab)
 
         assert 'st.session_state.pop("rc_refine_open", None)' in source
+
+
+class TestDemoModeToggle:
+    """The demo requests are presentation props on a page for describing real
+    features, so they sit behind a toggle that's off by default.
+
+    A toggle rather than a Demo tab of their own: every st.tabs() panel's code
+    runs on every rerun whether or not it's the visible one, so a second tab
+    rendering this same page would put every widget on it into the script
+    twice - two chat inputs, two "Push to Software Engineer" buttons sharing
+    one key.
+
+    Renders the real page rather than reading its source, so these assert what
+    someone actually sees. get_auto_deploy_mode() is stubbed because it calls
+    the GitHub API on every render and this file stays network-free.
+    """
+
+    _SCRIPT = """
+import req2prod.admin_ui as m
+m.get_auto_deploy_mode = lambda: None
+m.render_requirements_tab()
+"""
+
+    def test_the_page_renders_with_no_demo_buttons_by_default(self):
+        at = AppTest.from_string(self._SCRIPT, default_timeout=60).run()
+
+        assert not at.exception
+        assert [t.value for t in at.toggle] == [False]
+        assert at.toggle[0].label == "🎬 Demo mode"
+        assert [b.label for b in at.button] == []
+
+    def test_switching_it_on_reveals_exactly_the_two_demo_requests(self):
+        at = AppTest.from_string(self._SCRIPT, default_timeout=60).run()
+
+        at.toggle[0].set_value(True).run()
+
+        assert not at.exception
+        assert [b.label for b in at.button] == [
+            "➕ Demo: Add Req2Prod Logo",
+            "➖ Demo: Remove Req2Prod Logo",
+        ]
+
+    def test_switching_it_back_off_hides_them_again(self):
+        at = AppTest.from_string(self._SCRIPT, default_timeout=60).run()
+        at.toggle[0].set_value(True).run()
+
+        at.toggle[0].set_value(False).run()
+
+        assert not at.exception
+        assert [b.label for b in at.button] == []
