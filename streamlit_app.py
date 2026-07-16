@@ -51,6 +51,7 @@ from ai_viewer import render_sidebar_toggle, setup_layout
 from cto_cockpit_admin import render_architecture_tab, render_connectivity_tab, render_cost_tab
 from jobfinder_admin import render_overview_tab
 from req2prod.admin_ui import (
+    REQ2PROD_TAB_LABELS,
     render_ai_models_tab,
     render_documentation_tab,
     render_req2prod_pipeline_tab,
@@ -238,8 +239,11 @@ if st.query_params.get("admin") is not None:
         with tab_req2prod:
             # Ordered the way a change actually travels: describe it, watch it
             # ship, then read how the machinery works.
+            # Labels come from req2prod/admin_ui.py, not a literal here: the
+            # "View it in the Pipeline" button finds its tab in the rendered
+            # DOM by this exact text, so a rename has to move both at once.
             sub_requirements, sub_pipeline, sub_documentation = st.tabs(
-                ["Request a New Feature", "Pipeline", "Documentation"]
+                list(REQ2PROD_TAB_LABELS)
             )
             with sub_requirements:
                 render_requirements_tab()
