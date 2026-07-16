@@ -29,10 +29,20 @@
 - **Never `chmod o+x /home/ubuntu`.** The web server must not gain traverse into
   the app user's home directory. That constraint is why the site is served from
   `/var/www`.
-- Static IP, SSH user, and app directory of the box are production details and
-  are intentionally not recorded in this repo (it is public). Marco has these
-  on hand from prior deploys; agents needing them should ask Marco rather than
-  hard-coding them into a tracked file.
+- Static IP of the box: `16.171.202.23`. Server user: `ubuntu`. App dir on box:
+  `/home/ubuntu/crewai-starter`. Lightsail instance `job-finder`, region
+  `eu-north-1`.
+
+  These are recorded deliberately, not leaked. They are already tracked in this
+  repo — the IP is the `server_name` in `infra/nginx-jobfinder.conf`, and the
+  instance, region, user and app dir are env vars in
+  `.github/workflows/deploy-to-prod.yml` — and the IP is what
+  `dig yourmagicaljobfinder.online` returns to anyone who asks. They cannot be
+  removed from those files without breaking nginx and the deploy. A public web
+  server's address is not a secret, and redacting it here while two other tracked
+  files publish it would buy nothing and leave this plan unrunnable. What must
+  never appear in this public repo is genuinely non-public detail: credentials,
+  secrets, and the specific weaknesses of a live system.
 
 ## Operator Gate
 
@@ -50,7 +60,7 @@ push forward hoping the next one fixes it.
 
 | If this fails | Roll back by |
 |---|---|
-| DNS (Task 3 Step 4) | Revert both A records to the previous IP at one.com (Marco has it on hand) |
+| DNS (Task 3 Step 4) | Revert both A records to `46.30.211.38` at one.com |
 | Server block (Task 3 Step 6) | `sudo rm /etc/nginx/sites-enabled/req2prod`, `sudo nginx -t`, `sudo systemctl reload nginx` |
 | certbot (Task 3 Step 8) | `sudo certbot delete --cert-name req2prod.nl`, then remove the server block as above |
 | Site content (Task 3 Step 7) | `git revert` the content commit, redeploy — rsync mirrors the revert |
@@ -73,7 +83,7 @@ DRY and makes it testable without running a deploy.
 
 **Files:**
 - Create: `infra/sync-site.sh`
-- Test: `infra/test-sync-site.sh`
+- Test: `tests/test_sync_site.py`
 
 **Interfaces:**
 - Produces: `infra/sync-site.sh <repo-dir>` — syncs `<repo-dir>/site/` to
@@ -86,69 +96,90 @@ DRY and makes it testable without running a deploy.
 `rsync --delete` against an empty source silently wipes the destination. That is
 the failure this script exists to prevent, so it is the behaviour we test first.
 
-Create `infra/test-sync-site.sh`:
+Create `tests/test_sync_site.py`:
 
-```bash
-#!/usr/bin/env bash
-# Tests for sync-site.sh. Run: bash infra/test-sync-site.sh
-set -uo pipefail
+```python
+"""Tests for infra/sync-site.sh.
 
-SCRIPT="$(dirname "$0")/sync-site.sh"
-PASS=0
-FAIL=0
+rsync --delete mirrors its source, so syncing a missing or empty site/ would
+wipe the live web root. These tests pin that the script refuses instead.
 
-check() {
-  if [ "$2" = "$3" ]; then
-    echo "ok - $1"
-    PASS=$((PASS + 1))
-  else
-    echo "FAIL - $1 (expected '$3', got '$2')"
-    FAIL=$((FAIL + 1))
-  fi
-}
+DEST_OVERRIDE keeps the tests out of the real /var/www.
+"""
 
-# Each case runs in a throwaway tree; DEST_OVERRIDE keeps us out of /var/www.
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+import subprocess
+from pathlib import Path
 
-# Case 1: missing site/ must fail and must not create the destination
-repo="$tmp/case1"; mkdir -p "$repo"
-dest="$tmp/dest1"
-DEST_OVERRIDE="$dest" bash "$SCRIPT" "$repo" >/dev/null 2>&1
-check "missing site/ exits non-zero" "$?" "1"
-check "missing site/ leaves dest absent" "$([ -e "$dest" ] && echo yes || echo no)" "no"
+SCRIPT = Path(__file__).resolve().parents[1] / "infra" / "sync-site.sh"
 
-# Case 2: empty site/ must fail WITHOUT deleting existing published files
-repo="$tmp/case2"; mkdir -p "$repo/site"
-dest="$tmp/dest2"; mkdir -p "$dest"; echo "live page" > "$dest/index.html"
-DEST_OVERRIDE="$dest" bash "$SCRIPT" "$repo" >/dev/null 2>&1
-check "empty site/ exits non-zero" "$?" "1"
-check "empty site/ does NOT wipe dest" "$(cat "$dest/index.html" 2>/dev/null)" "live page"
 
-# Case 3: happy path copies the tree
-repo="$tmp/case3"; mkdir -p "$repo/site/main"
-echo "<title>Req2Prod — Overview</title>" > "$repo/site/main/index.html"
-dest="$tmp/dest3"
-DEST_OVERRIDE="$dest" bash "$SCRIPT" "$repo" >/dev/null 2>&1
-check "happy path exits zero" "$?" "0"
-check "happy path copies file" "$(cat "$dest/main/index.html" 2>/dev/null)" "<title>Req2Prod — Overview</title>"
+def run_sync(repo_dir, dest):
+    return subprocess.run(
+        ["bash", str(SCRIPT), str(repo_dir)],
+        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "DEST_OVERRIDE": str(dest)},
+        capture_output=True,
+        text=True,
+    )
 
-# Case 4: --delete mirrors removals (removing a page unpublishes it)
-echo "stale" > "$dest/orphan.html"
-DEST_OVERRIDE="$dest" bash "$SCRIPT" "$repo" >/dev/null 2>&1
-check "removed file is unpublished" "$([ -e "$dest/orphan.html" ] && echo yes || echo no)" "no"
 
-echo "---"
-echo "passed: $PASS  failed: $FAIL"
-[ "$FAIL" -eq 0 ]
+def test_missing_site_dir_is_refused(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    dest = tmp_path / "dest"
+
+    result = run_sync(repo, dest)
+
+    assert result.returncode != 0
+    assert not dest.exists()
+
+
+def test_empty_site_dir_does_not_wipe_published_site(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "site").mkdir(parents=True)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    (dest / "index.html").write_text("live page")
+
+    result = run_sync(repo, dest)
+
+    assert result.returncode != 0
+    assert (dest / "index.html").read_text() == "live page"
+
+
+def test_syncs_the_tree(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "site" / "main").mkdir(parents=True)
+    (repo / "site" / "main" / "index.html").write_text("<title>Req2Prod — Overview</title>")
+    dest = tmp_path / "dest"
+
+    result = run_sync(repo, dest)
+
+    assert result.returncode == 0
+    assert (dest / "main" / "index.html").read_text() == "<title>Req2Prod — Overview</title>"
+
+
+def test_removed_page_is_unpublished(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "site" / "main").mkdir(parents=True)
+    (repo / "site" / "main" / "index.html").write_text("page")
+    dest = tmp_path / "dest"
+
+    run_sync(repo, dest)
+    orphan = dest / "orphan.html"
+    orphan.write_text("stale")
+
+    run_sync(repo, dest)
+
+    assert not orphan.exists()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bash infra/test-sync-site.sh`
+Run: `python -m pytest tests/test_sync_site.py -v`
 
-Expected: FAIL — every case errors because `infra/sync-site.sh` does not exist.
-Final line reports `failed:` greater than 0 and the script exits non-zero.
+Expected: FAIL — all four tests fail because `infra/sync-site.sh` does not exist
+yet (bash exits 127, so `returncode != 0` passes for the two refusal tests but
+`test_syncs_the_tree` and `test_removed_page_is_unpublished` fail).
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -187,14 +218,18 @@ echo "synced $SRC -> $DEST"
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `chmod +x infra/sync-site.sh infra/test-sync-site.sh && bash infra/test-sync-site.sh`
+Run: `chmod +x infra/sync-site.sh && python -m pytest tests/test_sync_site.py -v`
 
-Expected: PASS — six `ok -` lines, `passed: 6  failed: 0`, exit code 0.
+Expected: PASS — `4 passed`.
 
 - [ ] **Step 5: Commit**
 
+The script must be committed executable (mode 100755) — the workflows invoke it
+directly. Confirm with `git ls-files -s infra/sync-site.sh` after adding; it must
+show `100755`, not `100644`.
+
 ```bash
-git add infra/sync-site.sh infra/test-sync-site.sh
+git add infra/sync-site.sh tests/test_sync_site.py
 git commit -m "Add guarded site sync script for req2prod.nl
 
 rsync --delete mirrors the source, so an empty or missing site/ would wipe
@@ -381,9 +416,9 @@ curl -fsS https://req2prod.nl/main | grep -q 'Req2Prod — Overview' && echo LIV
 
 - [ ] **Step 7: Run the sync script test again to confirm nothing regressed**
 
-Run: `bash infra/test-sync-site.sh`
+Run: `python -m pytest tests/test_sync_site.py -v`
 
-Expected: `passed: 6  failed: 0`.
+Expected: `4 passed`.
 
 - [ ] **Step 8: Commit**
 
@@ -502,10 +537,10 @@ Stop here. Steps 4-9 are Marco's.
 
 | Type | Name | Value |
 |---|---|---|
-| `A` | `@` | `<BOX_IP>` (Marco has the current static IP) |
-| `A` | `www` | `<BOX_IP>` |
+| `A` | `@` | `16.171.202.23` |
+| `A` | `www` | `16.171.202.23` |
 
-Change both from the previous IP. **A records only — do not add AAAA:** nginx
+Change both from `46.30.211.38`. **A records only — do not add AAAA:** nginx
 listens on IPv4 only, so an AAAA record would make IPv6 clients prefer IPv6 and
 fail. Leave the null MX (`0 .`) alone. Lower TTL to 300s first if one.com allows.
 
@@ -515,7 +550,7 @@ fail. Leave the null MX (`0 .`) alone. Lower TTL to 300s first if one.com allows
 dig +short req2prod.nl A
 ```
 
-Expected: the new `<BOX_IP>` value from Step 4. **Do not proceed until this returns the new IP** —
+Expected: `16.171.202.23`. **Do not proceed until this returns the new IP** —
 certbot proves ownership over HTTP on that IP and will fail otherwise.
 
 Expect req2prod.nl to serve Streamlit in this window: DNS points at the box but
@@ -527,7 +562,7 @@ is expected and resolves at Step 6.
 SSH in first (single paste — the key expires in ~2 minutes):
 
 ```
-aws lightsail get-instance-access-details --instance-name <LIGHTSAIL_INSTANCE_NAME> --region <AWS_REGION> --protocol ssh --no-cli-pager > /tmp/ls-access.json && jq -r '.accessDetails.privateKey' /tmp/ls-access.json > /tmp/ls-key && jq -r '.accessDetails.certKey' /tmp/ls-access.json > /tmp/ls-key-cert.pub && chmod 600 /tmp/ls-key && ssh -i /tmp/ls-key <SSH_USER>@<BOX_IP>
+aws lightsail get-instance-access-details --instance-name job-finder --region eu-north-1 --protocol ssh --no-cli-pager > /tmp/ls-access.json && jq -r '.accessDetails.privateKey' /tmp/ls-access.json > /tmp/ls-key && jq -r '.accessDetails.certKey' /tmp/ls-access.json > /tmp/ls-key-cert.pub && chmod 600 /tmp/ls-key && ssh -i /tmp/ls-key ubuntu@16.171.202.23
 ```
 
 Then on the box:
