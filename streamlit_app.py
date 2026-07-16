@@ -318,6 +318,11 @@ auth = AuthManager()
 if not auth.render_login_or_register():
     st.stop()
 
+st.markdown(
+    '<div id="req2prod-demo-logo" style="position:fixed;top:72px;right:16px;z-index:1000;"><svg width="150" height="45" viewBox="0 0 300 90" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="r2p-c1" x1="8" y1="26" x2="30" y2="64" gradientUnits="userSpaceOnUse"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs><path d="M10 28 L28 45 L10 62" stroke="url(#r2p-c1)" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="44" y="59" font-family="ui-monospace,\'SF Mono\',\'JetBrains Mono\',Menlo,Consolas,monospace" font-size="42" font-weight="700" letter-spacing="-2" fill="#f1f5f9">req<tspan fill="#818cf8">2</tspan>prod</text><rect x="258" y="30" width="15" height="30" rx="2.5" fill="#818cf8"><animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;.5;.5;1;1" dur="1.1s" repeatCount="indefinite"/></rect></svg></div>',
+    unsafe_allow_html=True,
+)
+
 username = auth.username
 user_tier = get_user_tier(username)
 user_dir = USERS_DIR / username
