@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Req2Prod — Overview</title>
 <style>
   :root{
@@ -12,19 +13,25 @@
     --border:rgba(241,245,249,.10); --border2:rgba(241,245,249,.06);
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  body{font-family:"Source Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;color:var(--text)}
+  html{background:var(--bg)}
+  body{background:var(--bg);color:var(--text);
+    font-family:"Source Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+    margin:0;padding:0 20px 72px;position:relative;overflow-x:hidden;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
   .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
   .accent{color:var(--accent)}
-  .page{width:210mm;height:297mm;background:var(--bg);position:relative;overflow:hidden;
-    padding:14mm 14mm 12mm;display:flex;flex-direction:column}
-  .page + .page{margin-top:8mm}
-  @page{size:A4;margin:0}
-  @media print{.page + .page{margin-top:0}}
 
-  /* ambient */
-  .page::before{content:"";position:absolute;top:-120px;left:50%;transform:translateX(-50%);
-    width:640px;height:340px;background:radial-gradient(closest-side,rgba(129,140,248,.16),transparent 70%);pointer-events:none}
+  /* Sections of the overview. This page began as two fixed A4 sheets for PDF
+     export; it is a web page now, so the sheets flow and size to their content.
+     Matches details.html's container so the two pages read as one site. */
+  .page{max-width:820px;margin:0 auto;position:relative;z-index:2}
+  .page + .page{margin-top:40px;padding-top:40px;border-top:1px solid var(--border2)}
+
+  /* ambient — on the body, so the glow sits behind the page rather than
+     repeating once per section */
+  body::before{content:"";position:absolute;top:-140px;left:50%;transform:translateX(-50%);
+    width:640px;height:340px;z-index:0;
+    background:radial-gradient(closest-side,rgba(129,140,248,.16),transparent 70%);pointer-events:none}
 
   /* header */
   .head{display:flex;align-items:center;justify-content:space-between;padding-bottom:11px;border-bottom:1px solid var(--border2);position:relative;z-index:2}
@@ -47,7 +54,7 @@
   h1{font-size:25px;line-height:1.1;letter-spacing:-.8px;font-weight:800;margin:18px 0 8px;position:relative;z-index:2}
   .grad{color:#c3c9ff}
   .hero-tag{font-size:13.5px;font-weight:600;color:#a5adf7;letter-spacing:.2px;margin:0 0 14px;position:relative;z-index:2}
-  .lead{font-size:12px;color:var(--muted);line-height:1.55;max-width:172mm;position:relative;z-index:2}
+  .lead{font-size:12px;color:var(--muted);line-height:1.55;max-width:650px;position:relative;z-index:2}
   .lead b{color:var(--text);font-weight:600}
 
   .kicker{color:var(--accent);font-size:10px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;margin-bottom:8px}
@@ -121,6 +128,13 @@
   .why2 .w .h{font-size:11.5px;font-weight:700;margin-bottom:4px}
   .why2 .w .h .ic{color:var(--accent)}
   .why2 .w p{font-size:9.5px;color:var(--muted);line-height:1.5}
+
+  /* The card grids were sized for a 210mm sheet, where three columns always fit.
+     On a narrow screen they squeeze to ~105px and the text becomes unreadable,
+     so stack them instead. */
+  @media (max-width:640px){
+    .vstrip,.why2,.two-col{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -304,10 +318,6 @@
     </div>
   </div>
 
-  <div class="footer" style="margin-top:auto">
-    <span>Req2Prod · Marco Hauff · req2prod.nl</span>
-    <span class="mono">req2prod — cradle to production · page 1 / 2</span>
-  </div>
 </div>
 
 <!-- ================= PAGE 2 ================= -->
@@ -387,9 +397,9 @@
     <div class="w"><div class="h"><span class="ic">⤢</span> Extensible by construction</div><p>New agents slot into the same GitHub-Actions + CrewAI structure—fast to adapt to new stacks and domains.</p></div>
   </div>
 
-  <div class="footer" style="margin-top:auto">
+  <div class="footer">
     <span>Contact · Marco Hauff · marco.hauff@gmail.com · req2prod.nl</span>
-    <span class="mono">© 2026 Req2Prod · Confidential · page 2 / 2</span>
+    <span class="mono">© 2026 Req2Prod</span>
   </div>
 </div>
 
