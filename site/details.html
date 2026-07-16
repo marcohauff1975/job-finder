@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Req2Prod &mdash; Requirement to production</title>
+<style>
+  *{box-sizing:border-box}
+  :root{
+    --bg:#0a0a0f; --panel:#161622; --panel2:#12121c;
+    --text:#f1f5f9; --muted:#9096a6; --muted2:#6b7180;
+    --accent:#818cf8; --accent2:#a78bfa; --accentdim:rgba(129,140,248,.14);
+    --amber:#f59e0b; --cyan:#22d3ee; --green:#4ade80; --magenta:#e879f9;
+    --border:rgba(241,245,249,.10); --border2:rgba(241,245,249,.06);
+    --sans:"Source Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    font-size:15px; line-height:1.6; margin:0; padding:0 20px 72px;
+    position:relative; overflow-x:hidden;
+  }
+  body::before{
+    content:""; position:absolute; top:-140px; left:50%; transform:translateX(-50%);
+    width:640px; height:340px; pointer-events:none; z-index:0;
+    background:radial-gradient(closest-side,rgba(129,140,248,.16),transparent 70%);
+  }
+  .wrap{max-width:820px; margin:0 auto; position:relative; z-index:2}
+  .mono{font-family:var(--mono)}
+  .accent{color:var(--accent)}
+
+  .head{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:26px 0 12px; border-bottom:1px solid var(--border2); flex-wrap:wrap;
+  }
+  .brand{display:flex; align-items:center; gap:9px}
+  .brand svg{width:26px; height:26px; flex:0 0 auto}
+  .brand .wm{font-weight:700; font-size:19px; letter-spacing:-1px; line-height:1; font-family:var(--mono)}
+  .tagpill{
+    font-size:10.5px; color:var(--muted); border:1px solid var(--border);
+    background:var(--panel); padding:4px 11px; border-radius:100px; letter-spacing:.4px;
+  }
+
+  h1{
+    font-size:clamp(27px,4.4vw,37px); line-height:1.1; letter-spacing:-1px;
+    font-weight:800; margin:34px 0 10px; text-wrap:balance;
+  }
+  .grad{color:#c3c9ff}
+  .hero-tag{font-size:15px; font-weight:600; color:#a5adf7; letter-spacing:.2px; margin:0 0 16px}
+  .lead{font-size:15px; color:var(--muted); line-height:1.65; margin:0 0 14px}
+  .lead b{color:var(--text); font-weight:600}
+
+  section{padding-top:44px}
+  .kicker{
+    color:var(--accent); font-size:10px; font-weight:700; letter-spacing:1.8px;
+    text-transform:uppercase; margin:0 0 8px;
+  }
+  h2{font-size:21px; font-weight:800; letter-spacing:-.3px; margin:0 0 12px; text-wrap:balance}
+  p{margin:0 0 14px; color:var(--muted); line-height:1.65; text-wrap:pretty}
+  p strong{color:var(--text); font-weight:600}
+  p em{color:var(--text); font-style:italic}
+  code{
+    font-family:var(--mono); font-size:.86em; background:var(--accentdim);
+    color:#a9b0ff; border:1px solid rgba(129,140,248,.22);
+    border-radius:5px; padding:.08em .34em; word-break:break-word;
+  }
+
+  figure{margin:22px 0 0}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:14px}
+  .diagram-wrap{padding:16px; overflow-x:auto}
+  .diagram{display:block; width:100%; min-width:600px; height:auto; font-family:var(--sans)}
+  .legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:11px; font-size:10.5px; color:var(--muted)}
+  .legend .k{display:flex; align-items:center; gap:6px}
+  .swatch{width:16px; height:3px; border-radius:2px; flex:0 0 auto}
+  .swatch.dash{background:none !important; height:0; border-top:2px dashed var(--accent)}
+  figcaption{font-size:12.5px; color:var(--muted); line-height:1.55; margin-top:11px}
+  figcaption code{font-size:.9em}
+
+  .t{fill:var(--text); font-size:12.5px; font-weight:700}
+  .ts{fill:var(--muted); font-size:10px}
+  .th{fill:var(--muted); font-size:9px; font-family:var(--mono); letter-spacing:1.2px}
+
+  .n-panel rect{fill:var(--panel); stroke:rgba(241,245,249,.12)}
+  .n-flow  rect{fill:#1a1a2e; stroke:var(--accent); stroke-opacity:.5}
+  .n-human rect{fill:#0c1620; stroke:var(--cyan); stroke-opacity:.55}
+  .n-agent rect{fill:#1c1420; stroke:var(--magenta); stroke-opacity:.65}
+  .n-good  rect{fill:#0f1e14; stroke:var(--green); stroke-opacity:.55}
+  .n-warn  rect{fill:#211a10; stroke:var(--amber); stroke-opacity:.65}
+  .n-human .ts{fill:#7fe3f2}
+  .n-agent .t{fill:var(--magenta)}
+  .n-agent .ts{fill:#c98fd6}
+  .n-warn .t{fill:var(--amber)}
+  .n-warn .ts{fill:#d6a659}
+
+  .w{fill:none; stroke-width:1.8}
+  .w-flow{stroke:var(--accent)}
+  .w-clar{stroke:var(--cyan); stroke-width:1.6; stroke-dasharray:5 4}
+  .w-fix{stroke:var(--magenta); stroke-width:1.5}
+  .w-good{stroke:var(--green); stroke-width:1.6; stroke-dasharray:5 4}
+  .w-warn{stroke:var(--amber); stroke-width:1.6}
+  .l-flow{fill:var(--muted); font-size:9px}
+  .l-clar{fill:var(--cyan); font-size:9px; font-weight:600}
+  .l-fix{fill:var(--magenta); font-size:9px; font-weight:600}
+  .frame-rt{fill:rgba(129,140,248,.03); stroke:var(--accent); stroke-opacity:.3; stroke-width:1.5; stroke-dasharray:6 4}
+  .frame-l{fill:#c7c9ff; font-size:10px; font-weight:700}
+
+  .vstrip{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; margin-top:26px}
+  .vcard{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 15px}
+  .vcard .vt{font-size:13px; font-weight:700; margin-bottom:4px; color:var(--text)}
+  .vcard .vt .ic{color:var(--accent)}
+  .vcard p{font-size:11.5px; margin:0; line-height:1.5}
+
+  .footer{
+    margin-top:52px; padding-top:14px; border-top:1px solid var(--border2);
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    flex-wrap:wrap; font-size:11px; color:var(--muted2);
+  }
+  .footer .mono{color:var(--muted)}
+
+  /* site nav */
+  .nav{display:flex; gap:8px; margin-top:12px}
+  .nav a{font-size:11px; font-weight:600; letter-spacing:.4px; padding:6px 15px; border-radius:100px;
+    border:1px solid var(--border); background:var(--panel); color:var(--muted); text-decoration:none}
+  .nav a:hover{color:var(--text); border-color:rgba(241,245,249,.24)}
+  .nav a[aria-current="page"]{background:var(--accentdim); border-color:rgba(129,140,248,.45); color:#a9b0ff}
+  .nav a:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  @media print{.nav{display:none}}
+</style>
+
+</head>
+<body>
+
+<div class="wrap">
+
+<div class="head">
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#161622"></rect><path d="M16 20 L34 32 L16 44" stroke="#818cf8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"></path><rect x="40" y="22" width="9" height="20" rx="2" fill="#f1f5f9"></rect></svg>
+    <span class="wm">req<span class="accent">2</span>prod</span>
+  </div>
+  <span class="tagpill">HOW IT WORKS &middot; GITHUB ACTIONS + CREWAI</span>
+</div>
+
+<nav class="nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/details.html" aria-current="page">More Details</a>
+</nav>
+
+<h1>A requirement goes in one end.<br><span class="grad">A deployed change comes out the other.</span></h1>
+<div class="hero-tag">Unattended, LLM-agnostic, agentic SDLC orchestration</div>
+<p class="lead">Everything in Req2Prod hinges on a single artifact in the middle: <b>the pull request</b>. Two quite different things can open one, and from that point on nothing downstream can tell them apart. This page follows a change the whole way &mdash; from the moment you type a requirement, through the agents that challenge it and build it, to the review loop that gates it and the deploy that puts it live.</p>
+
+<section>
+  <p class="kicker">The shape of it</p>
+  <h2>The pull request is the seam</h2>
+  <p>One entry point is the product: you describe a feature, and a product manager, an architect and an engineer turn it into code. The other is you in a Claude Code session, building the tool itself. They converge on the same artifact and are held to the same gate.</p>
+
+  <figure>
+    <div class="panel diagram-wrap">
+      <svg class="diagram" viewBox="0 0 690 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d0t d0d">
+        <title id="d0t">The two entry points converging on a pull request</title>
+        <desc id="d0d">Both the Requirements Challenge product path and a Claude Code session open a pull request against main. From there the same review and deploy pipeline picks it up.</desc>
+        <defs>
+          <marker id="m0f" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"></path></marker>
+        </defs>
+        <g class="n-flow">
+          <rect x="40" y="20" width="270" height="66" rx="12"></rect>
+          <text class="t" x="175" y="42" text-anchor="middle" dominant-baseline="central">Requirements Challenge</text>
+          <text class="ts" x="175" y="63" text-anchor="middle" dominant-baseline="central">the product: PM, architect, engineer</text>
+        </g>
+        <g class="n-panel">
+          <rect x="380" y="20" width="270" height="66" rx="12"></rect>
+          <text class="t" x="515" y="42" text-anchor="middle" dominant-baseline="central">A Claude Code session</text>
+          <text class="ts" x="515" y="63" text-anchor="middle" dominant-baseline="central">you, building the tool itself</text>
+        </g>
+        <g class="n-flow">
+          <rect x="195" y="140" width="300" height="56" rx="12"></rect>
+          <text class="t" x="345" y="162" text-anchor="middle" dominant-baseline="central">Pull request against main</text>
+          <text class="ts" x="345" y="181" text-anchor="middle" dominant-baseline="central">nothing downstream knows which one made it</text>
+        </g>
+        <g class="n-good">
+          <rect x="195" y="236" width="300" height="56" rx="12"></rect>
+          <text class="t" x="345" y="258" text-anchor="middle" dominant-baseline="central">Reviewed, merged, deployed</text>
+          <text class="ts" x="345" y="277" text-anchor="middle" dominant-baseline="central">the same path for both</text>
+        </g>
+        <path class="w w-flow" d="M175,86 V112 H345 V132" marker-end="url(#m0f)"></path>
+        <path class="w w-flow" d="M515,86 V112 H345 V132" marker-end="url(#m0f)"></path>
+        <path class="w w-flow" d="M345,196 V228" marker-end="url(#m0f)"></path>
+      </svg>
+    </div>
+    <figcaption>The symmetry is deliberate. <code>build_feature()</code> only ever opens a pull request &mdash; it never pushes to main and never merges &mdash; so the engineer's work arrives exactly like a human-authored branch.</figcaption>
+  </figure>
+
+  <p>The seam also marks where you change roles. Before the pull request you are <em>in</em> the loop: the product manager and architect challenge your requirement, hand back open questions, and nothing proceeds until you have answered them. After it you are deliberately <em>out</em> of the loop: the reviewer, the fixer and the arbiter converge or escalate among themselves, and you are only ever informed of the outcome.</p>
+
+  <p>That is the position the whole system takes. You are the authority on <strong>what to build</strong>, and explicitly not the judge of <strong>how it was built</strong>.</p>
+</section>
+
+<section>
+  <p class="kicker">Before the pull request</p>
+  <h2>Where you're in the loop</h2>
+  <p>The front half is a conversation, not a form. You type a feature request, and <code>challenge_requirement()</code> sends the entire thread &mdash; your original idea plus every answer you have given since &mdash; to the product manager and the architect. They re-run fresh against that whole accumulated conversation every time rather than relying on agent memory, so picking a session back up days later challenges from the same context.</p>
+
+  <figure>
+    <div class="panel diagram-wrap">
+      <svg class="diagram" viewBox="0 0 690 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d1t d1d">
+        <title id="d1t">The requirements challenge sequence, from a typed request to an open pull request</title>
+        <desc id="d1d">You type a feature request into the Streamlit admin page. challenge_requirement sends the whole conversation to product_manager and software_architect. If either has open questions you answer them and the loop runs again. Once both mark it ready for development, a button appears that calls build_feature, which runs software_engineer inside a throwaway clone of the repo and opens a pull request against main.</desc>
+        <defs>
+          <marker id="m1f" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"></path></marker>
+          <marker id="m1c" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#22d3ee"></path></marker>
+        </defs>
+
+        <rect class="frame-rt" x="455" y="512" width="228" height="95" rx="12"></rect>
+        <text class="frame-l" x="466" y="530">throwaway clone</text>
+
+        <text class="th" x="120" y="16" text-anchor="middle">YOU</text>
+        <text class="th" x="345" y="16" text-anchor="middle">STREAMLIT APP</text>
+        <text class="th" x="570" y="16" text-anchor="middle">CREWAI AGENTS</text>
+
+        <g class="n-human">
+          <rect x="20" y="30" width="200" height="52" rx="12"></rect>
+          <text class="t" x="120" y="50" text-anchor="middle" dominant-baseline="central">Type a feature request</text>
+          <text class="ts" x="120" y="68" text-anchor="middle" dominant-baseline="central">Requirements Challenge page</text>
+        </g>
+        <g class="n-panel">
+          <rect x="245" y="112" width="200" height="52" rx="12"></rect>
+          <text class="t" x="345" y="132" text-anchor="middle" dominant-baseline="central">challenge_requirement()</text>
+          <text class="ts" x="345" y="150" text-anchor="middle" dominant-baseline="central">sends the whole thread</text>
+        </g>
+        <g class="n-panel">
+          <rect x="470" y="194" width="200" height="52" rx="12"></rect>
+          <text class="t" x="570" y="214" text-anchor="middle" dominant-baseline="central">product_manager</text>
+          <text class="ts" x="570" y="232" text-anchor="middle" dominant-baseline="central">requirements, open questions</text>
+        </g>
+        <g class="n-panel">
+          <rect x="470" y="276" width="200" height="52" rx="12"></rect>
+          <text class="t" x="570" y="296" text-anchor="middle" dominant-baseline="central">software_architect</text>
+          <text class="ts" x="570" y="314" text-anchor="middle" dominant-baseline="central">technical direction</text>
+        </g>
+        <g class="n-human">
+          <rect x="20" y="358" width="200" height="52" rx="12"></rect>
+          <text class="t" x="120" y="378" text-anchor="middle" dominant-baseline="central">You answer</text>
+          <text class="ts" x="120" y="396" text-anchor="middle" dominant-baseline="central">and it all runs again</text>
+        </g>
+        <g class="n-panel">
+          <rect x="245" y="440" width="200" height="52" rx="12"></rect>
+          <text class="t" x="345" y="460" text-anchor="middle" dominant-baseline="central">Push to Software Engineer</text>
+          <text class="ts" x="345" y="478" text-anchor="middle" dominant-baseline="central">the button only now appears</text>
+        </g>
+        <g class="n-flow">
+          <rect x="470" y="538" width="200" height="52" rx="12"></rect>
+          <text class="t" x="570" y="558" text-anchor="middle" dominant-baseline="central">software_engineer</text>
+          <text class="ts" x="570" y="576" text-anchor="middle" dominant-baseline="central">builds in a fresh copy</text>
+        </g>
+        <g class="n-flow">
+          <rect x="195" y="636" width="300" height="52" rx="12"></rect>
+          <text class="t" x="345" y="656" text-anchor="middle" dominant-baseline="central">Pull request against main</text>
+          <text class="ts" x="345" y="674" text-anchor="middle" dominant-baseline="central">never pushed, never self-merged</text>
+        </g>
+
+        <path class="w w-flow" d="M120,82 V97 H345 V102" marker-end="url(#m1f)"></path>
+        <path class="w w-flow" d="M345,164 V179 H570 V184" marker-end="url(#m1f)"></path>
+        <path class="w w-flow" d="M570,246 V266" marker-end="url(#m1f)"></path>
+        <path class="w w-clar" d="M570,328 V343 H120 V348" marker-end="url(#m1c)"></path>
+        <path class="w w-clar" d="M20,384 H8 V138 H239" marker-end="url(#m1c)"></path>
+        <path class="w w-flow" d="M670,302 H678 V466 H455" marker-end="url(#m1f)"></path>
+        <path class="w w-flow" d="M345,492 V507 H570 V530" marker-end="url(#m1f)"></path>
+        <path class="w w-flow" d="M570,590 V620 H345 V628" marker-end="url(#m1f)"></path>
+
+        <text class="l-clar" x="300" y="333" text-anchor="middle">questions remain &mdash; the only human step</text>
+        <text class="l-flow" x="672" y="440" text-anchor="end">both ready</text>
+      </svg>
+      <div class="legend">
+        <div class="k"><span class="swatch" style="background:#818cf8"></span> Delivery flow</div>
+        <div class="k"><span class="swatch" style="background:#22d3ee"></span> Clarification &mdash; the only human step</div>
+        <div class="k"><span class="swatch dash"></span> Throwaway clone, deleted when the build ends</div>
+      </div>
+    </div>
+    <figcaption>The button is gated twice. It only renders when both agents' latest verdicts are ready, and <code>build_feature()</code> re-checks both flags itself before running &mdash; defense in depth, not the primary gate.</figcaption>
+  </figure>
+
+  <p>The loop is the point. Neither agent gives you a plan and stops; they come back with what they still need to know, and the <strong>Push to Software Engineer</strong> button does not exist until both have set <code>ready_for_development</code>. It also disappears the moment anything new is said, so a stale verdict can't be pushed twice.</p>
+
+  <p>Once you press it, <code>software_engineer</code> builds &mdash; and it can stop and ask the product manager a functional question or the architect a technical one mid-build rather than guessing. It works inside a throwaway clone of the repo that is deleted afterward regardless of outcome. That isolation was learned the hard way: the file and git tools used to run wherever the process happened to be, which in production is the directory serving live traffic. One malformed write left <code>streamlit_app.py</code> containing the word "test" and the live server parked on a half-built branch &mdash; a full outage from a single bad tool call.</p>
+</section>
+
+<section>
+  <p class="kicker">Once the pull request exists</p>
+  <h2>Three ways in, and no fixed order</h2>
+  <p>From here the path is identical whichever half produced the branch. The pipeline is not one sequence: it contains three jobs, and which of them runs depends entirely on which event fired &mdash; <code>code_review</code> and <code>deploy</code> never execute in the same run. The one that always runs is <code>resolve_backend</code>, which decides <code>api</code> versus <code>subscription</code> in a single place so the runner choice and the backend handed to the scripts can never disagree.</p>
+
+  <figure>
+    <div class="panel diagram-wrap">
+      <svg class="diagram" viewBox="0 0 690 396" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d2t d2d">
+        <title id="d2t">Req2Prod pipeline job routing</title>
+        <desc id="d2d">Three events &mdash; pull_request, push to main, and workflow_dispatch &mdash; are raised by GitHub itself. They all enter the resolve_backend job, which routes to either the code_review job or the deploy job. All three jobs sit inside a dashed boundary marking the temporary GitHub runner.</desc>
+        <defs>
+          <marker id="m2f" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"></path></marker>
+        </defs>
+
+        <rect class="frame-rt" x="15" y="100" width="660" height="280" rx="14"></rect>
+        <text class="frame-l" x="30" y="120">temporary GitHub runner &middot; wiped after every run</text>
+
+        <g class="n-panel">
+          <rect x="15" y="20" width="205" height="56" rx="12"></rect>
+          <text class="t" x="117" y="42" text-anchor="middle" dominant-baseline="central">pull_request</text>
+          <text class="ts" x="117" y="61" text-anchor="middle" dominant-baseline="central">opened, synchronize</text>
+        </g>
+        <g class="n-panel">
+          <rect x="242" y="20" width="205" height="56" rx="12"></rect>
+          <text class="t" x="344" y="42" text-anchor="middle" dominant-baseline="central">push to main</text>
+          <text class="ts" x="344" y="61" text-anchor="middle" dominant-baseline="central">after a merge lands</text>
+        </g>
+        <g class="n-panel">
+          <rect x="469" y="20" width="205" height="56" rx="12"></rect>
+          <text class="t" x="571" y="42" text-anchor="middle" dominant-baseline="central">workflow_dispatch</text>
+          <text class="ts" x="571" y="61" text-anchor="middle" dominant-baseline="central">you click Run workflow</text>
+        </g>
+        <g class="n-panel">
+          <rect x="195" y="140" width="300" height="56" rx="12"></rect>
+          <text class="t" x="345" y="162" text-anchor="middle" dominant-baseline="central">resolve_backend</text>
+          <text class="ts" x="345" y="181" text-anchor="middle" dominant-baseline="central">picks api or subscription runner</text>
+        </g>
+        <g class="n-flow">
+          <rect x="30" y="290" width="280" height="74" rx="12"></rect>
+          <text class="t" x="170" y="312" text-anchor="middle" dominant-baseline="central">code_review job</text>
+          <text class="ts" x="170" y="332" text-anchor="middle" dominant-baseline="central">runs only if the event was</text>
+          <text class="ts" x="170" y="349" text-anchor="middle" dominant-baseline="central">pull_request</text>
+        </g>
+        <g class="n-good">
+          <rect x="380" y="290" width="280" height="74" rx="12"></rect>
+          <text class="t" x="520" y="312" text-anchor="middle" dominant-baseline="central">deploy job</text>
+          <text class="ts" x="520" y="332" text-anchor="middle" dominant-baseline="central">runs on dispatch, or on push</text>
+          <text class="ts" x="520" y="349" text-anchor="middle" dominant-baseline="central">if AUTO_DEPLOY_ON_MERGE is true</text>
+        </g>
+
+        <path class="w w-flow" d="M117,76 V110 H345 V130" marker-end="url(#m2f)"></path>
+        <path class="w w-flow" d="M344,76 V130" marker-end="url(#m2f)"></path>
+        <path class="w w-flow" d="M571,76 V110 H345 V130" marker-end="url(#m2f)"></path>
+        <path class="w w-flow" d="M345,196 V245 H170 V280" marker-end="url(#m2f)"></path>
+        <path class="w w-flow" d="M345,196 V245 H520 V280" marker-end="url(#m2f)"></path>
+      </svg>
+      <div class="legend">
+        <div class="k"><span class="swatch" style="background:#818cf8"></span> Delivery flow</div>
+        <div class="k"><span class="swatch" style="background:#4ade80"></span> Path to production</div>
+        <div class="k"><span class="swatch dash"></span> Temporary runner &mdash; a fresh VM, wiped after every run</div>
+      </div>
+    </div>
+    <figcaption>The same dashed-boundary idea as the build clone, in a second place. The events sit outside it because GitHub raises them from its own service &mdash; no compute of yours is involved until a job is assigned a runner.</figcaption>
+  </figure>
+
+  <p>Nothing in this file enforces <em>review before deploy</em> &mdash; there is no <code>needs:</code> linking the two jobs. What guarantees a change was reviewed before it reaches production is main's branch protection requiring an approving review. GitHub refuses the merge, so the push event that would trigger a deploy never happens. The ordering lives in your repo settings, not in the YAML.</p>
+
+  <p>One caveat the boundary hides: it is only temporary in <code>api</code> mode. Flip <code>AGENT_BACKEND</code> to <code>subscription</code> and those jobs relocate to your laptop, which persists &mdash; which is why the deploy job's cleanup step matters. <code>resolve_backend</code> also enforces a security boundary: a fork's PR silently falls back to <code>api</code> no matter what the toggle says, because <code>subscription</code> would otherwise run an outsider's code on your machine.</p>
+</section>
+
+<section>
+  <p class="kicker">When the event is a pull request</p>
+  <h2>Where you're out of the loop</h2>
+  <p>GitHub is only the trigger and the gate here &mdash; it does no reviewing itself. The workflow checks out the actual branch rather than the merge ref, because the fix agent needs somewhere real to push, then pipes <code>gh pr diff</code> into a file and runs one Python module.</p>
+
+  <figure>
+    <div class="panel diagram-wrap">
+      <svg class="diagram" viewBox="0 0 690 680" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d3t d3d">
+        <title id="d3t">The PR code review sequence</title>
+        <desc id="d3d">A pull request triggers the workflow, which runs code_review_runner.py, which drives the code_reviewer, pr_fix_agent and pr_arbiter CrewAI agents, then approves and squash-merges the PR as MarcoAIagent. The Python driver and CrewAI agent lanes sit inside a dashed boundary marking the temporary GitHub runner.</desc>
+        <defs>
+          <marker id="m3f" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"></path></marker>
+          <marker id="m3m" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#e879f9"></path></marker>
+          <marker id="m3a" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#f59e0b"></path></marker>
+        </defs>
+
+        <rect class="frame-rt" x="232" y="100" width="452" height="505" rx="14"></rect>
+        <text class="frame-l" x="246" y="120">temporary GitHub runner</text>
+
+        <text class="th" x="120" y="16" text-anchor="middle">GITHUB</text>
+        <text class="th" x="345" y="16" text-anchor="middle">PYTHON DRIVER</text>
+        <text class="th" x="570" y="16" text-anchor="middle">CREWAI AGENTS</text>
+
+        <g class="n-panel">
+          <rect x="20" y="30" width="200" height="52" rx="12"></rect>
+          <text class="t" x="120" y="50" text-anchor="middle" dominant-baseline="central">Pull request opened</text>
+          <text class="ts" x="120" y="68" text-anchor="middle" dominant-baseline="central">from either half</text>
+        </g>
+        <g class="n-panel">
+          <rect x="20" y="112" width="200" height="52" rx="12"></rect>
+          <text class="t" x="120" y="132" text-anchor="middle" dominant-baseline="central">Req2Prod pipeline</text>
+          <text class="ts" x="120" y="150" text-anchor="middle" dominant-baseline="central">gh pr diff to /tmp/pr.diff</text>
+        </g>
+        <g class="n-flow">
+          <rect x="245" y="194" width="200" height="52" rx="12"></rect>
+          <text class="t" x="345" y="214" text-anchor="middle" dominant-baseline="central">code_review_runner.py</text>
+          <text class="ts" x="345" y="232" text-anchor="middle" dominant-baseline="central">owns the loop and git</text>
+        </g>
+        <g class="n-panel">
+          <rect x="470" y="276" width="200" height="52" rx="12"></rect>
+          <text class="t" x="570" y="296" text-anchor="middle" dominant-baseline="central">code_reviewer</text>
+          <text class="ts" x="570" y="314" text-anchor="middle" dominant-baseline="central">gates every merge</text>
+        </g>
+        <g class="n-agent">
+          <rect x="470" y="358" width="200" height="52" rx="12"></rect>
+          <text class="t" x="570" y="378" text-anchor="middle" dominant-baseline="central">pr_fix_agent</text>
+          <text class="ts" x="570" y="396" text-anchor="middle" dominant-baseline="central">applies fixes &middot; 2 rounds max</text>
+        </g>
+        <g class="n-agent">
+          <rect x="470" y="440" width="200" height="52" rx="12"></rect>
+          <text class="t" x="570" y="460" text-anchor="middle" dominant-baseline="central">pr_arbiter</text>
+          <text class="ts" x="570" y="478" text-anchor="middle" dominant-baseline="central">final merge / hold decision</text>
+        </g>
+        <g class="n-warn">
+          <rect x="245" y="440" width="185" height="52" rx="12"></rect>
+          <text class="t" x="337" y="460" text-anchor="middle" dominant-baseline="central">Not safe: left open</text>
+          <text class="ts" x="337" y="478" text-anchor="middle" dominant-baseline="central">emails you why</text>
+        </g>
+        <g class="n-flow">
+          <rect x="245" y="530" width="200" height="52" rx="12"></rect>
+          <text class="t" x="345" y="550" text-anchor="middle" dominant-baseline="central">gh pr review, gh pr merge</text>
+          <text class="ts" x="345" y="568" text-anchor="middle" dominant-baseline="central">as MarcoAIagent</text>
+        </g>
+        <g class="n-good">
+          <rect x="20" y="616" width="200" height="52" rx="12"></rect>
+          <text class="t" x="120" y="636" text-anchor="middle" dominant-baseline="central">Squash-merged to main</text>
+          <text class="ts" x="120" y="654" text-anchor="middle" dominant-baseline="central">required review satisfied</text>
+        </g>
+
+        <path class="w w-flow" d="M120,82 V102" marker-end="url(#m3f)"></path>
+        <path class="w w-flow" d="M120,164 V179 H345 V184" marker-end="url(#m3f)"></path>
+        <path class="w w-flow" d="M345,246 V261 H570 V266" marker-end="url(#m3f)"></path>
+        <path class="w w-fix" d="M570,328 V348" marker-end="url(#m3m)"></path>
+        <path class="w w-fix" d="M470,384 H455 V302 H460" marker-end="url(#m3m)"></path>
+        <path class="w w-fix" d="M570,410 V430" marker-end="url(#m3m)"></path>
+        <path class="w w-warn" d="M470,466 H440" marker-end="url(#m3a)"></path>
+        <path class="w w-flow" d="M570,492 V507 H345 V520" marker-end="url(#m3f)"></path>
+        <path class="w w-flow" d="M670,302 H678 V556 H455" marker-end="url(#m3f)"></path>
+        <path class="w w-flow" d="M345,582 V597 H120 V606" marker-end="url(#m3f)"></path>
+
+        <text class="l-fix" x="562" y="341" text-anchor="end">findings</text>
+        <text class="l-flow" x="672" y="524" text-anchor="end">clean</text>
+      </svg>
+      <div class="legend">
+        <div class="k"><span class="swatch" style="background:#818cf8"></span> Delivery flow</div>
+        <div class="k"><span class="swatch" style="background:#e879f9"></span> Fix loop &rarr; pr_arbiter</div>
+        <div class="k"><span class="swatch" style="background:#f59e0b"></span> Not safe to merge &rarr; you are notified</div>
+        <div class="k"><span class="swatch" style="background:#4ade80"></span> Merged</div>
+      </div>
+    </div>
+    <figcaption>Only two arrows cross the dashed line: the diff comes in at the top, the verdict and any fix commits go out at the bottom.</figcaption>
+  </figure>
+
+  <p><code>code_review_runner.py</code> is the orchestrator, and it is plain Python with no AI in it. It owns the review and fix loop, all git operations, and the final review and merge calls. The agents never touch git: <code>pr_fix_agent</code> only edits files in the working tree, and the runner commits everything it changed exactly once at the very end. Pushing mid-loop would fire a fresh <code>synchronize</code> event and spawn a second, racing copy of the same job.</p>
+
+  <p>Each agent returns a typed result rather than prose, which is what lets the plain-Python driver branch on <code>result.passed</code> and <code>verdict.safe_to_merge</code> instead of parsing text. If <code>code_reviewer</code> passes, the runner approves and squash-merges immediately. If it returns findings, those exact findings go to <code>pr_fix_agent</code>, which edits the named files; the runner then re-diffs against <code>origin/main</code> and re-reviews the new diff. If it still hasn't converged, <code>pr_arbiter</code> makes a genuine independent call: merge it, or leave the PR open and email you a plain-language explanation.</p>
+
+  <p>The review is submitted as <strong>MarcoAIagent</strong> rather than the workflow's default token, because GitHub won't let a PR's author approve its own PR &mdash; the reviewer has to be a different account. The default token is read-only anyway, so it couldn't push fixes even if it were allowed to approve.</p>
+</section>
+
+<section>
+  <p class="kicker">When it's a merge or a manual run</p>
+  <h2>Reaching out of a disposable machine</h2>
+  <p>The deploy job genuinely is one long ordered sequence, and its whole purpose is reaching out of the throwaway VM to a machine that isn't throwaway.</p>
+
+  <figure>
+    <div class="panel diagram-wrap">
+      <svg class="diagram" viewBox="0 0 690 528" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d4t d4d">
+        <title id="d4t">The deploy job's ordered steps</title>
+        <desc id="d4d">All six deploy steps run inside a dashed boundary marking the temporary GitHub runner. Three of them &mdash; snapshot production, update the server, and prod_tester &mdash; reach out over ssh to the Lightsail production server, which sits outside the boundary and persists between runs.</desc>
+        <defs>
+          <marker id="m4f" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"></path></marker>
+          <marker id="m4g" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#4ade80"></path></marker>
+        </defs>
+
+        <rect class="frame-rt" x="15" y="10" width="395" height="505" rx="14"></rect>
+        <text class="frame-l" x="30" y="30">temporary GitHub runner</text>
+
+        <g class="n-panel">
+          <rect x="30" y="45" width="365" height="54" rx="12"></rect>
+          <text class="t" x="212" y="65" text-anchor="middle" dominant-baseline="central">Prepare the runner</text>
+          <text class="ts" x="212" y="84" text-anchor="middle" dominant-baseline="central">checkout, python, deps, chromium</text>
+        </g>
+        <g class="n-panel">
+          <rect x="30" y="125" width="365" height="54" rx="12"></rect>
+          <text class="t" x="212" y="145" text-anchor="middle" dominant-baseline="central">Get into AWS</text>
+          <text class="ts" x="212" y="164" text-anchor="middle" dominant-baseline="central">credentials, then a short-lived ssh cert</text>
+        </g>
+        <g class="n-panel">
+          <rect x="30" y="205" width="365" height="54" rx="12"></rect>
+          <text class="t" x="212" y="225" text-anchor="middle" dominant-baseline="central">Snapshot production</text>
+          <text class="ts" x="212" y="244" text-anchor="middle" dominant-baseline="central">record the commit running there</text>
+        </g>
+        <g class="n-panel">
+          <rect x="30" y="285" width="365" height="54" rx="12"></rect>
+          <text class="t" x="212" y="305" text-anchor="middle" dominant-baseline="central">Update the server</text>
+          <text class="ts" x="212" y="324" text-anchor="middle" dominant-baseline="central">git pull, restart only if code changed</text>
+        </g>
+        <g class="n-panel">
+          <rect x="30" y="365" width="365" height="54" rx="12"></rect>
+          <text class="t" x="212" y="385" text-anchor="middle" dominant-baseline="central">prod_tester, rollback_agent if broken</text>
+          <text class="ts" x="212" y="404" text-anchor="middle" dominant-baseline="central">a real headless browser hits the live site</text>
+        </g>
+        <g class="n-panel">
+          <rect x="30" y="445" width="365" height="54" rx="12"></rect>
+          <text class="t" x="212" y="465" text-anchor="middle" dominant-baseline="central">Clean up key material</text>
+          <text class="ts" x="212" y="484" text-anchor="middle" dominant-baseline="central">always, even if a step above failed</text>
+        </g>
+        <g class="n-good">
+          <rect x="455" y="195" width="215" height="224" rx="12"></rect>
+          <text class="t" x="562" y="225" text-anchor="middle" dominant-baseline="central">Lightsail server</text>
+          <text class="ts" x="562" y="248" text-anchor="middle" dominant-baseline="central">your real production box</text>
+          <text class="ts" x="562" y="290" text-anchor="middle" dominant-baseline="central">it persists between runs,</text>
+          <text class="ts" x="562" y="307" text-anchor="middle" dominant-baseline="central">so everything the steps</text>
+          <text class="ts" x="562" y="324" text-anchor="middle" dominant-baseline="central">do here actually sticks</text>
+        </g>
+
+        <path class="w w-flow" d="M212,99 V115" marker-end="url(#m4f)"></path>
+        <path class="w w-flow" d="M212,179 V195" marker-end="url(#m4f)"></path>
+        <path class="w w-flow" d="M212,259 V275" marker-end="url(#m4f)"></path>
+        <path class="w w-flow" d="M212,339 V355" marker-end="url(#m4f)"></path>
+        <path class="w w-flow" d="M212,419 V435" marker-end="url(#m4f)"></path>
+        <path class="w w-good" d="M395,232 H447" marker-end="url(#m4g)"></path>
+        <path class="w w-good" d="M395,312 H447" marker-end="url(#m4g)"></path>
+        <path class="w w-good" d="M395,392 H447" marker-end="url(#m4g)"></path>
+      </svg>
+      <div class="legend">
+        <div class="k"><span class="swatch" style="background:#818cf8"></span> Step order inside the job</div>
+        <div class="k"><span class="swatch" style="background:#4ade80"></span> Reaches production over ssh</div>
+        <div class="k"><span class="swatch dash"></span> Temporary runner &mdash; everything else persists</div>
+      </div>
+    </div>
+    <figcaption>Every deploy re-fetches a short-lived SSH certificate rather than storing a key, because the runner has no memory between runs &mdash; there is nothing to store into.</figcaption>
+  </figure>
+
+  <p>The snapshot step near the top is what makes the bottom half work: it records production's current commit <em>before</em> anything changes, and hands that value to <code>rollback_agent</code> as <code>PREVIOUS_COMMIT</code>. Without it there would be nothing to roll back to.</p>
+
+  <p>The restart is conditional &mdash; it only fires if the diff touched <code>.py</code> files or <code>requirements.txt</code> &mdash; and when it does, dependencies are installed into the server's persistent venv, not just the runner's throwaway one. That step exists because its absence once restarted the app straight into a <code>ModuleNotFoundError</code>. Installing a new dependency on the runner only affects the box that is about to be deleted.</p>
+</section>
+
+<section>
+  <p class="kicker">Two neighbours</p>
+  <h2>What lives outside the pipeline file</h2>
+  <p><code>deploy-to-prod.yml</code> is a separate, manual-only deploy that predates the merge; the pipeline's own deploy job largely supersedes it. <code>devops-agent.yml</code> watches both of them and fires automatically when a deploy <em>fails</em>: <code>devops_agent</code> reads that run's logs, applies a fix, pushes it, and re-triggers the workflow.</p>
+  <p>It ignores pull request failures, since the review path already has <code>pr_arbiter</code> as its escape hatch. It also carries two guards against runaway cost &mdash; it stops and emails you if the last commit on main was already one of its own fixes, or if it has fired too many times in a short window.</p>
+
+  <div class="vstrip">
+    <div class="vcard">
+      <div class="vt"><span class="ic">&#9670;</span> Requirement in, software out</div>
+      <p>Collapses the whole SDLC &mdash; analysis, build, review, release &mdash; into one autonomous, auditable flow.</p>
+    </div>
+    <div class="vcard">
+      <div class="vt"><span class="ic">&#8635;</span> Self-correcting by design</div>
+      <p>The review loop runs a fix agent, then an independent arbiter decides; failed prod tests auto-rollback or invoke DevOps.</p>
+    </div>
+    <div class="vcard">
+      <div class="vt"><span class="ic">&#9881;</span> Model-tiered &amp; controlled</div>
+      <p>Each agent runs its own Claude tier from a model registry. The sole human step is requirement clarification.</p>
+    </div>
+  </div>
+</section>
+
+<div class="footer">
+  <span>Req2Prod &middot; Marco Hauff &middot; req2prod.nl</span>
+  <span class="mono">req2prod &mdash; cradle to production</span>
+</div>
+
+</div>
+
+</body>
+</html>

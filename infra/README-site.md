@@ -6,12 +6,12 @@
 > exist, and no TLS certificate has been issued. The site goes live only once
 > all three of those land as separate operator steps.
 >
-> **Until then, do not edit `site/main/index.html`.** The live page at
+> **Until then, do not edit `site/index.html`.** The live page at
 > `https://yourmagicaljobfinder.online/req2prod` is still served from the old
 > web root (`/var/www/req2prod/`), which is now a frozen, unmanaged copy --
 > nothing updates it any more. The deploy already syncs `site/` to the new web
 > root (`/var/www/req2prod.nl`), but nginx isn't serving that root yet, so an
-> edit to `site/main/index.html` only changes the unserved copy while the old,
+> edit to `site/index.html` only changes the unserved copy while the old,
 > live copy keeps answering requests unchanged -- the published page would go
 > stale silently, with no error to signal it. If the page must be edited
 > before the redirect lands, update `/var/www/req2prod/index.html` on the box
@@ -21,7 +21,8 @@ Everything under `site/` is published to <https://req2prod.nl>. The tree is the
 site: the path in this repo is the path on the web.
 
 ```
-site/main/index.html   ->  https://req2prod.nl/main
+site/index.html        ->  https://req2prod.nl/
+site/details.html      ->  https://req2prod.nl/details.html
 site/flows/index.html  ->  https://req2prod.nl/flows
 site/flows/chart.svg   ->  https://req2prod.nl/flows/chart.svg
 ```
@@ -53,10 +54,12 @@ tree out to that web root on every deploy; both deploy workflows call it right
 after pulling. What's still missing is the nginx server block itself, plus DNS
 and a certificate — see the note at the top of this file.
 
-Once the server block exists, `/` will 301 to `/main`. When a real homepage
-lands at `site/index.html`, delete that `location = /` block from
-`infra/nginx-req2prod.conf` and `try_files` will serve it. `/main` is
-unaffected.
+`site/index.html` is the homepage, served at `/`. There is no `/main` and no
+root redirect: an earlier draft parked the one-pager at `/main` because no
+homepage existed, but it is the homepage now, so `try_files` serves it at the
+root directly. The pages' own nav links to `/` and `/details.html`, so those are
+the URLs that must keep working — check the nav in both pages before moving or
+renaming anything under `site/`.
 
 ## Verifying
 
@@ -65,5 +68,6 @@ content, never just the status code — a `200` from this box can mean the
 Streamlit app answered instead of the page:
 
 ```
-curl -fsS https://req2prod.nl/main | grep -q 'Req2Prod — Overview' && echo LIVE
+curl -fsS https://req2prod.nl/ | grep -q 'Req2Prod — Overview' && echo LIVE
+curl -fsS https://req2prod.nl/details.html | grep -q 'Requirement to production' && echo LIVE
 ```
