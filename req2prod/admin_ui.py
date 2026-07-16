@@ -76,8 +76,15 @@ PIPELINE_TAB_LABEL = REQ2PROD_TAB_LABELS[1]
 # markup, no file:// path, no external font or network request - so the logo
 # renders on the live site with Marco's Mac switched off once merged/deployed.
 # The stable id="req2prod-demo-logo" makes Add and Remove exact inverses.
+# top:72px, not 12px: Streamlit renders its own header as a full-width,
+# 60px-tall, opaque bar at z-index 999990. A logo at top:12px sits entirely
+# inside that band, and z-index:1000 loses to 999990 - so it rendered
+# perfectly and was painted over, every time. That's what made three
+# separate "add the logo" runs look like they'd produced nothing: the SVG
+# was never the problem, and regenerating it could never have fixed it.
+# 72 = the header's 60px plus the 12px gap the original was going for.
 _DEMO_LOGO_SVG = (
-    '<div id="req2prod-demo-logo" style="position:fixed;top:12px;right:16px;z-index:1000;">'
+    '<div id="req2prod-demo-logo" style="position:fixed;top:72px;right:16px;z-index:1000;">'
     '<svg width="150" height="45" viewBox="0 0 300 90" fill="none" xmlns="http://www.w3.org/2000/svg">'
     '<defs><linearGradient id="r2p-c1" x1="8" y1="26" x2="30" y2="64" gradientUnits="userSpaceOnUse">'
     '<stop stop-color="#818cf8"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>'
