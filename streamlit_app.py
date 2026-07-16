@@ -282,15 +282,6 @@ st.markdown(
                 <stop offset="100%" style="stop-color:#f1f5f9;stop-opacity:1" />
             </linearGradient>
         </defs>
-        
-        <!-- Background circle for visual containment -->
-        <circle cx="60" cy="60" r="58" fill="none" stroke="#818cf8" stroke-width="2" opacity="0.4"/>
-        
-        <!-- Animated rectangle (the primary animation element) -->
-        <rect class="animated-rect" x="35" y="35" width="50" height="50" fill="url(#req2prod_grad)" stroke="#a78bfa" stroke-width="2" rx="4"/>
-        
-        <!-- Fixed accent element for branding -->
-        <circle cx="85" cy="40" r="6" fill="#818cf8"/>
     </svg>
     """,
     unsafe_allow_html=True,
