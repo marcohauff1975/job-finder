@@ -256,21 +256,11 @@ if st.query_params.get("admin") is not None:
 st.markdown(
     """
     <style>
-        @keyframes req2prod_pulse {
-            0% { opacity: 0.3; }
-            50% { opacity: 1; }
-            100% { opacity: 0.3; }
-        }
-        
         #req2prod-demo-logo {
             position: fixed;
             top: 12px;
             right: 16px;
             z-index: 1000;
-        }
-        
-        #req2prod-demo-logo .animated-rect {
-            animation: req2prod_pulse 1.1s ease-in-out infinite;
         }
     </style>
 
@@ -282,6 +272,12 @@ st.markdown(
                 <stop offset="100%" style="stop-color:#f1f5f9;stop-opacity:1" />
             </linearGradient>
         </defs>
+
+        <!-- Background circle for visual containment -->
+        <circle cx="60" cy="60" r="58" fill="none" stroke="#818cf8" stroke-width="2" opacity="0.4"/>
+
+        <!-- Accent circle -->
+        <circle cx="85" cy="40" r="6" fill="#818cf8"/>
     </svg>
     """,
     unsafe_allow_html=True,
