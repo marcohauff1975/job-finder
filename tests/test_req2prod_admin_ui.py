@@ -15,15 +15,59 @@ import inspect
 from contextlib import nullcontext
 from pathlib import Path
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 import req2prod.admin_ui as m
 from req2prod.model_registry import AGENT_DISPLAY_NAMES, TECH_EXCELLENCE_AGENT_KEYS
+from req2prod.Req2Prod import ArchitectureDirectionResult, FeatureRequirementsResult
+
+_PM = FeatureRequirementsResult(
+    user_story="As a user, I want a thing",
+    acceptance_criteria=["it works"],
+    ready_for_development=True,
+)
+_ARCHITECT = ArchitectureDirectionResult(
+    builds_on_existing_app=True,
+    technical_notes="add it to the existing module",
+    ready_for_development=True,
+)
 
 _SCRIPT = """
 import req2prod.admin_ui as m
 m.render_ai_models_tab()
 """
+
+# Renders the real Request-a-New-Feature page with one already-challenged
+# requirement on screen (both agents ready => Push is showing). REFINE and
+# PENDING are substituted in per test. Nothing here patches module attributes:
+# AppTest runs the script in this process against the same imported module, so
+# a `m.x = ...` inside the script would outlive the test - use monkeypatch.
+_REQUIREMENTS_SCRIPT = """
+import req2prod.admin_ui as m
+import streamlit as st
+m.get_auto_deploy_mode = lambda: None
+st.session_state["rc_messages"] = [
+    {"role": "user", "content": "add a thing"},
+    {"role": "product_manager", "content": "spec",
+     "data": {"user_story": "s", "ready_for_development": True}},
+    {"role": "software_architect", "content": "dir",
+     "data": {"builds_on_existing_app": True, "technical_notes": "n",
+              "ready_for_development": True}},
+]
+st.session_state["rc_session_id"] = "test"
+st.session_state.setdefault("rc_refine_open", REFINE)
+PENDING
+m.render_requirements_tab()
+"""
+
+
+def _render(refine_open=True, pending=None):
+    script = _REQUIREMENTS_SCRIPT.replace("REFINE", str(refine_open)).replace(
+        "PENDING",
+        f'st.session_state["rc_pending"] = {pending!r}' if pending else "",
+    )
+    return AppTest.from_string(script, default_timeout=60).run()
 
 
 class TestLoadCleanAgentIdentity:
@@ -267,10 +311,19 @@ class TestInputHiddenWhileAwaitingPush:
 
         assert state["rc_demo_nonce"] == 5
 
-    def test_the_injector_is_skipped_while_the_box_is_hidden(self):
-        source = inspect.getsource(m.render_requirements_tab)
+    def test_the_injector_is_skipped_while_the_box_is_hidden(self, monkeypatch):
+        """Renders the real page rather than matching the source line that
+        skips it: that assertion pinned one exact `if` condition, so adding a
+        second reason to skip (rc_pending) broke the test while the behaviour
+        it names was still correct."""
+        calls = []
+        monkeypatch.setattr(m, "_prefill_chat_input_if_requested", lambda: calls.append(1))
 
-        assert "if not awaiting_push:\n        _prefill_chat_input_if_requested()" in source
+        at = _render(refine_open=False)
+
+        assert not at.exception
+        assert len(at.chat_input) == 0, "precondition: the box is hidden here"
+        assert calls == []
 
     def test_submitting_clears_the_refine_escape(self):
         """It was opened for this message, and the message makes ready_pair
@@ -279,6 +332,117 @@ class TestInputHiddenWhileAwaitingPush:
         source = inspect.getsource(m.render_requirements_tab)
 
         assert 'st.session_state.pop("rc_refine_open", None)' in source
+
+
+class TestInputDisabledWhileWorking:
+    """While the agents think, the box sat there enabled and empty - it looked
+    like the requirement had been swallowed, and invited a second one on top of
+    a run already in flight. It can't be fixed in place: Streamlit cannot
+    change a widget mid-run, so a box drawn before the crew call stays as drawn
+    for the call's whole duration. Hence the split - _accept_requirement()
+    records and reruns, _run_requirement_challenge() does the work on the way
+    back, under a box already drawn disabled. These pin both halves."""
+
+    @pytest.fixture
+    def state(self, monkeypatch):
+        st_state = {"rc_session_id": "test", "rc_messages": []}
+        monkeypatch.setattr(m.st, "session_state", st_state)
+        monkeypatch.setattr(m, "save_session", lambda *a, **kw: None)
+        monkeypatch.setattr(m.st, "rerun", lambda: st_state.__setitem__("reran", True))
+        return st_state
+
+    def test_accepting_records_the_message_and_queues_it(self, state):
+        m._accept_requirement("add a thing")
+
+        assert state["rc_messages"] == [{"role": "user", "content": "add a thing"}]
+        assert state["rc_pending"] == "add a thing"
+        assert state["reran"] is True
+
+    def test_accepting_does_not_run_the_crew(self, state, monkeypatch):
+        """The whole point of the split. If the work happens here, it happens
+        under the enabled box this change exists to get rid of."""
+        monkeypatch.setattr(
+            m, "challenge_requirement", lambda *a, **kw: pytest.fail("ran too early")
+        )
+
+        m._accept_requirement("add a thing")
+
+    def test_the_queued_work_runs_and_appends_both_agents(self, state, monkeypatch):
+        state["rc_messages"] = [{"role": "user", "content": "add a thing"}]
+        state["rc_pending"] = "add a thing"
+        monkeypatch.setattr(m.st, "spinner", lambda *a, **kw: nullcontext())
+        monkeypatch.setattr(m, "_run_with_retry", lambda fn, arg: (_PM, _ARCHITECT))
+
+        m._run_requirement_challenge()
+
+        assert [msg["role"] for msg in state["rc_messages"]] == [
+            "user",
+            "product_manager",
+            "software_architect",
+        ]
+
+    def test_the_flag_is_cleared_even_when_the_crew_blows_up(self, state, monkeypatch):
+        """Cleared before the call, not after. A crew call that raises past the
+        handler - or a client that disconnects mid-spinner, which this page has
+        already been bitten by - would otherwise leave rc_pending set, and the
+        box disabled forever while the same requirement reran on every rerun."""
+        state["rc_pending"] = "add a thing"
+        monkeypatch.setattr(m.st, "spinner", lambda *a, **kw: nullcontext())
+
+        def boom(fn, arg):
+            raise BaseException("client went away")
+
+        monkeypatch.setattr(m, "_run_with_retry", boom)
+
+        with pytest.raises(BaseException, match="client went away"):
+            m._run_requirement_challenge()
+
+        assert "rc_pending" not in state
+
+    def test_the_box_is_disabled_while_a_requirement_is_pending(self, monkeypatch):
+        monkeypatch.setattr(m, "_run_requirement_challenge", lambda: None)
+
+        at = _render(pending="add a thing")
+
+        assert not at.exception
+        assert at.chat_input[0].disabled is True
+
+    def test_the_box_is_enabled_when_nothing_is_pending(self):
+        at = _render()
+
+        assert not at.exception
+        assert at.chat_input[0].disabled is False
+
+    def test_the_placeholder_never_changes(self, monkeypatch):
+        """The injector finds the box by its placeholder text
+        (_prefill_chat_input_if_requested's selector). A "Working..." variant
+        while pending would leave it silently matching nothing - the same
+        two-literals-that-agree-until-they-don't trap as TOOL_CLI_COMMAND."""
+        monkeypatch.setattr(m, "_run_requirement_challenge", lambda: None)
+
+        idle = _render()
+        working = _render(pending="add a thing")
+
+        assert idle.chat_input[0].placeholder == m._REQUIREMENT_INPUT_PLACEHOLDER
+        assert working.chat_input[0].placeholder == m._REQUIREMENT_INPUT_PLACEHOLDER
+
+    def test_the_injector_is_skipped_while_the_box_is_disabled(self, monkeypatch):
+        """Same reason it's skipped while hidden: a disabled textarea can't be
+        typed into, so injecting into it would look like a dead button."""
+        calls = []
+        monkeypatch.setattr(m, "_run_requirement_challenge", lambda: None)
+        monkeypatch.setattr(m, "_prefill_chat_input_if_requested", lambda: calls.append(1))
+
+        _render(pending="add a thing")
+
+        assert calls == []
+
+    def test_the_work_runs_after_the_box_is_drawn(self):
+        """Order is the fix. Drawing the box after the crew call would put an
+        enabled one back on screen for the whole run."""
+        source = inspect.getsource(m.render_requirements_tab)
+
+        assert source.index("st.chat_input(") < source.index("_run_requirement_challenge()")
 
 
 class TestDemoModeToggle:

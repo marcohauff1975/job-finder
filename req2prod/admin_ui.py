@@ -431,12 +431,22 @@ def _jump_to_pipeline_tab_if_requested() -> None:
     )
 
 
-def _submit_requirement(text: str) -> None:
-    """Feed one feature-request message into the requirements challenge and
-    render the agents' response. Shared entry point for both the free-form
-    st.chat_input below and the demo prefill "Send to agents" button - the
-    body is the former inline st.chat_input handler, extracted verbatim
-    (prompt -> text) so both paths behave identically."""
+def _accept_requirement(text: str) -> None:
+    """Record one feature-request message and queue the challenge for the next
+    run, without running it here.
+
+    Splitting acceptance from the work is what lets the input box be drawn
+    disabled while the agents think. Streamlit cannot change a widget mid-run:
+    whatever the previous render drew stays on screen until the script
+    finishes, so a box drawn enabled *before* the crew call stays enabled and
+    empty for the whole call - inviting a second requirement, and looking like
+    the message was swallowed, since st.chat_input clears itself on submit and
+    the history above only redraws on the next run. The box can only be shown
+    disabled if it is drawn that way before the call starts, which means the
+    call has to happen on a later run than the submit. Hence: record, flag,
+    rerun - and _run_requirement_challenge() does the work on the way back,
+    below the now-disabled box.
+    """
     if not st.session_state.get("rc_session_id"):
         st.session_state["rc_session_id"] = new_session_id()
     session_id = st.session_state["rc_session_id"]
@@ -445,6 +455,25 @@ def _submit_requirement(text: str) -> None:
     messages.append({"role": "user", "content": text})
     st.session_state["rc_messages"] = messages
     save_session(session_id, messages)
+
+    st.session_state["rc_pending"] = text
+    st.rerun()
+
+
+def _run_requirement_challenge() -> None:
+    """Run the queued requirements challenge and append the agents' response.
+
+    Runs on the rerun _accept_requirement() triggers, after the input box has
+    been drawn disabled - see that function for why the work can't happen on
+    the submit run itself. The flag is cleared before the crew call, not
+    after: a call that raises hard enough to escape the `except` below (or a
+    client that disconnects mid-spinner) would otherwise leave rc_pending set
+    and re-run the same requirement on every rerun, with the box disabled
+    forever.
+    """
+    session_id = st.session_state["rc_session_id"]
+    messages = st.session_state.get("rc_messages", [])
+    st.session_state.pop("rc_pending", None)
 
     result = None
     error = None
@@ -789,15 +818,26 @@ def render_requirements_tab() -> None:
             st.session_state["rc_jump_nonce"] = st.session_state.get("rc_jump_nonce", 0) + 1
             st.rerun()
 
-    prompt = None if awaiting_push else st.chat_input(_REQUIREMENT_INPUT_PLACEHOLDER)
+    # Disabled, not hidden, while the agents work: the box has to stay on
+    # screen for the spinner below it to read as "this is being worked on"
+    # rather than as the page having lost the message. The placeholder stays
+    # _REQUIREMENT_INPUT_PLACEHOLDER in both states on purpose - it is the
+    # selector _prefill_chat_input_if_requested() matches on, and a "Working..."
+    # variant here would leave the injector silently finding nothing.
+    pending = st.session_state.get("rc_pending")
+    prompt = (
+        None
+        if awaiting_push
+        else st.chat_input(_REQUIREMENT_INPUT_PLACEHOLDER, disabled=bool(pending))
+    )
     # A demo button click lands here (same run) and injects its text into the
     # chat_input above; the user then sends it exactly like a typed message.
-    # Skipped while the box is hidden - the injector needs a real textarea to
-    # write into and silently gives up without one, so this would be a no-op
-    # that looks like a broken button. The demo buttons ask for the box back
-    # rather than being hidden themselves, so this only skips a click that
-    # can't happen.
-    if not awaiting_push:
+    # Skipped while the box is hidden or disabled - the injector needs a real,
+    # writable textarea and silently gives up otherwise, so this would be a
+    # no-op that looks like a broken button. The demo buttons ask for the box
+    # back rather than being hidden themselves, so this only skips a click that
+    # can't be acted on anyway.
+    if not awaiting_push and not pending:
         _prefill_chat_input_if_requested()
     _jump_to_pipeline_tab_if_requested()
     if prompt:
@@ -812,7 +852,12 @@ def render_requirements_tab() -> None:
         # and it makes ready_pair None on its own, so leaving it set would keep
         # the box open through the next ready verdict too.
         st.session_state.pop("rc_refine_open", None)
-        _submit_requirement(prompt)
+        _accept_requirement(prompt)
+
+    # Last, so the box above is already drawn (and disabled) before the crew
+    # call blocks the script.
+    if pending:
+        _run_requirement_challenge()
 
 
 def _flow_is_in_flight(stages: list[dict]) -> bool:
