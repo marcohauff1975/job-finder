@@ -111,3 +111,31 @@ class TestUnlimitedUserHasOneHome:
 
         assert "UNLIMITED_USER = " not in source
         assert "from reporting import UNLIMITED_USER" in source
+
+
+class TestThePublicAppNoLongerServesTheConsole:
+    """The cut. streamlit_app.py served both behind ?admin=1, which made them
+    one process under one systemd unit - so a deploy restarting jobfinder
+    also killed the SDLC view someone was watching that deploy through."""
+
+    def test_the_admin_block_is_gone(self):
+        names = _code_identifiers("streamlit_app.py")
+
+        assert "query_params" not in names, "?admin=1 should mean nothing now"
+        assert "get_admin_password" not in names
+        assert "boto3" not in names, "existed only for the password gate"
+
+    def test_it_no_longer_imports_any_admin_module(self):
+        source = (REPO_ROOT / "streamlit_app.py").read_text()
+
+        for gone in ("cto_cockpit_admin", "jobfinder_admin", "req2prod.admin_ui"):
+            assert f"import {gone}" not in source
+            assert f"from {gone}" not in source
+
+    def test_a_job_finder_change_does_not_restart_the_console(self):
+        """The whole point of the split, asserted end to end: ship a change to
+        the public app, and the process rendering the SDLC view keeps running."""
+        from req2prod.deploy_targets import JOBFINDER, REQ2PROD, services_to_restart
+
+        assert services_to_restart(["streamlit_app.py"]) == {JOBFINDER}
+        assert REQ2PROD not in services_to_restart(["job_search.py"])

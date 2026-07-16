@@ -1,5 +1,10 @@
 """
-Regression test for the admin tab wiring in streamlit_app.py.
+Regression test for the admin tab wiring in req2prod_app.py.
+
+Lived in streamlit_app.py behind ?admin=1 until the console became its own
+Streamlit process, so restarting the public Job Finder would stop taking the
+SDLC view down with it. The wiring below is unchanged by that move - only
+which file holds it.
 
 st.tabs() runs every tab's body on every rerun regardless of which tab
 is visually selected - only the DOM placement is tab-scoped, not the
@@ -40,8 +45,8 @@ def db(tmp_path, monkeypatch):
 
 
 def _run_admin_app():
-    at = AppTest.from_file("streamlit_app.py")
-    at.query_params["admin"] = "1"
+    # No query_params: this app IS the console, so there's nothing to gate on.
+    at = AppTest.from_file("req2prod_app.py")
     at.session_state["admin_authed"] = True
     at.run(timeout=30)
     return at

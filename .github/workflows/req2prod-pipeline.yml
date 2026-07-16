@@ -29,6 +29,7 @@ env:
   REMOTE_APP_DIR: /home/ubuntu/crewai-starter
   REMOTE_USER: ubuntu
   SERVICE_NAME: jobfinder.service
+  ADMIN_SERVICE_NAME: req2prod.service
   PROD_URL: https://yourmagicaljobfinder.online
 
 jobs:
@@ -227,7 +228,17 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
             "sudo $REMOTE_APP_DIR/infra/sync-site.sh $REMOTE_APP_DIR"
 
-      - name: Decide whether a restart is actually needed
+      # Which services, not whether - the app is two Streamlit processes now
+      # (see req2prod/deploy_targets.py). Restarting both for every change
+      # would mean shipping a Job Finder tweak still kills the SDLC view
+      # someone is watching that very deploy through, which is the whole
+      # problem the split exists to fix.
+      #
+      # The rule lives in Python, not in a grep here: it has real edge cases
+      # (shared code restarts both, an unclassified file restarts both, a
+      # published page restarts nothing) and those are worth testing. See
+      # tests/test_deploy_targets.py.
+      - name: Decide which services need restarting
         id: diff
         run: |
           NEW_COMMIT=$(git rev-parse HEAD)
@@ -235,11 +246,9 @@ jobs:
           CHANGED=$(git diff --name-only "${{ steps.pre_deploy.outputs.previous_commit }}" "$NEW_COMMIT")
           echo "Changed files:"
           echo "$CHANGED"
-          if echo "$CHANGED" | grep -qE '\.py$|^requirements\.txt$'; then
-            echo "needs_restart=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs_restart=false" >> "$GITHUB_OUTPUT"
-          fi
+          RESTART=$(echo "$CHANGED" | python3 -m req2prod.deploy_targets)
+          echo "Services to restart: ${RESTART:-(none)}"
+          echo "restart_services=$RESTART" >> "$GITHUB_OUTPUT"
           {
             echo "change_summary<<EOF"
             git log --oneline "${{ steps.pre_deploy.outputs.previous_commit }}..$NEW_COMMIT"
@@ -252,16 +261,25 @@ jobs:
       # server's persistent venv - the app would restart straight into
       # a ModuleNotFoundError with no warning, exactly what happened
       # before this step existed.
+      # Both processes share one venv, so this runs if either is restarting.
       - name: Install dependencies on the server
-        if: steps.diff.outputs.needs_restart == 'true'
+        if: steps.diff.outputs.restart_services != ''
         run: |
           ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
             "cd $REMOTE_APP_DIR && venv/bin/pip install -r requirements.txt"
 
-      - name: Restart jobfinder.service
-        if: steps.diff.outputs.needs_restart == 'true'
+      - name: Restart jobfinder.service (the public app)
+        if: contains(steps.diff.outputs.restart_services, 'jobfinder')
         run: |
           ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" "sudo systemctl restart $SERVICE_NAME"
+          sleep 5
+
+      # Skipped for a Job Finder-only change, which is the point: the SDLC view
+      # someone is watching this deploy through lives in this process.
+      - name: Restart req2prod.service (the admin console)
+        if: contains(steps.diff.outputs.restart_services, 'req2prod')
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" "sudo systemctl restart $ADMIN_SERVICE_NAME"
           sleep 5
 
       - name: Run prod_tester (and rollback_agent if needed)

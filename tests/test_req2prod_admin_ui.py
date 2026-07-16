@@ -108,9 +108,11 @@ class TestJumpToPipelineButton:
     def test_pipeline_label_is_one_of_the_rendered_tab_labels(self):
         assert m.PIPELINE_TAB_LABEL in m.REQ2PROD_TAB_LABELS
 
-    def test_streamlit_app_renders_exactly_these_labels(self):
-        """streamlit_app.py must not reintroduce its own literal list."""
-        source = (Path(__file__).parent.parent / "streamlit_app.py").read_text()
+    def test_the_console_renders_exactly_these_labels(self):
+        """req2prod_app.py must not reintroduce its own literal list. It holds
+        the tabs now - they moved there when the console became its own
+        process."""
+        source = (Path(__file__).parent.parent / "req2prod_app.py").read_text()
 
         assert "list(REQ2PROD_TAB_LABELS)" in source
         assert '"Request a New Feature", "Pipeline", "Documentation"' not in source
