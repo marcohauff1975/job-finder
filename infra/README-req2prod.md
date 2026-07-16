@@ -22,11 +22,22 @@ channel to the box); `/var/www` is the *serve* location.
 
 ## Deploying a change to the one-pager
 
-Deploys on this box are manual. From `/home/ubuntu/crewai-starter` on the server:
+Nothing manual. Both `deploy-to-prod.yml` and `req2prod-pipeline.yml` copy the
+file to `/var/www/req2prod/` on every deploy, in a "Sync the req2prod one-pager
+to /var/www" step immediately after they pull on the server. Edit
+`static/req2prod/index.html`, merge to main, deploy as usual.
 
-```
-git pull --ff-only origin main
-```
+That step is what keeps the served copy current. Because the page is served from
+`/var/www` rather than the checkout, a `git pull` alone updates the repo on the
+box but **not** the file nginx actually serves — the checkout would advance while
+`/var/www` silently kept serving the old page. Nothing in the deploy's health
+check would catch it either, since it only probes `:8501` and never requests
+`/req2prod`. If you add another static page here, it needs the same treatment.
+
+No nginx reload is needed for a content change — nginx reads the file per request,
+and `Cache-Control: no-store` prevents caching.
+
+Deploying by hand, if ever needed, is the same two commands the workflows run:
 
 ```
 sudo mkdir -p /var/www/req2prod
@@ -35,9 +46,6 @@ sudo mkdir -p /var/www/req2prod
 ```
 sudo cp static/req2prod/index.html /var/www/req2prod/index.html
 ```
-
-Editing the page itself needs nothing further — nginx reads the file per request
-and `Cache-Control: no-store` prevents caching.
 
 Only if `infra/nginx-jobfinder.conf` itself changed:
 
