@@ -327,3 +327,56 @@ m.render_requirements_tab()
 
         assert not at.exception
         assert [b.label for b in at.button] == []
+
+
+class TestPushAndRefineSitTogether:
+    """Both agents ready means one question with two answers - ship it, or say
+    more first - so both buttons sit on one row. Renders the real page, so
+    these assert what's actually on screen rather than what the source says."""
+
+    _SCRIPT = """
+import req2prod.admin_ui as m
+import streamlit as st
+m.get_auto_deploy_mode = lambda: None
+st.session_state["rc_messages"] = [
+    {"role": "user", "content": "add a thing"},
+    {"role": "product_manager", "content": "spec",
+     "data": {"user_story": "s", "ready_for_development": True}},
+    {"role": "software_architect", "content": "dir",
+     "data": {"builds_on_existing_app": True, "technical_notes": "n",
+              "ready_for_development": True}},
+]
+st.session_state["rc_session_id"] = "test"
+st.session_state.setdefault("rc_refine_open", REFINE)
+m.render_requirements_tab()
+"""
+
+    def _run(self, refine_open):
+        return AppTest.from_string(
+            self._SCRIPT.replace("REFINE", str(refine_open)), default_timeout=60
+        ).run()
+
+    def test_both_buttons_render_while_a_requirement_waits_to_be_pushed(self):
+        at = self._run(False)
+
+        assert not at.exception
+        assert [b.label for b in at.button] == [
+            "🚀 Push to Software Engineer",
+            "✏️ Add something first",
+        ]
+        assert len(at.chat_input) == 0, "the box stays hidden until asked for"
+
+    def test_refine_goes_away_once_the_box_is_back(self):
+        """Nothing to offer once the thing it asks for is already there."""
+        at = self._run(True)
+
+        assert not at.exception
+        assert [b.label for b in at.button] == ["🚀 Push to Software Engineer"]
+        assert len(at.chat_input) == 1
+
+    def test_push_survives_asking_for_the_box(self):
+        """The point of the escape is adding to the requirement, not
+        abandoning it - Push has to still be there."""
+        at = self._run(True)
+
+        assert "🚀 Push to Software Engineer" in [b.label for b in at.button]

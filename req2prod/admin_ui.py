@@ -666,14 +666,24 @@ def render_requirements_tab() -> None:
     awaiting_push = ready_pair is not None and not st.session_state.get("rc_refine_open")
     if ready_pair is not None:
         st.success("Both agents have confirmed this is ready for development.")
-        if awaiting_push:
-            _, refine_col = st.columns([2, 1])
-            if refine_col.button(
-                "✏️ Add something first", key="rc_refine", use_container_width=True
-            ):
-                st.session_state["rc_refine_open"] = True
-                st.rerun()
-        if st.button("🚀 Push to Software Engineer", key="rc_push_to_engineer", type="primary"):
+        # Side by side, because they're the two answers to one question - ship
+        # it, or say more first. The trailing column keeps them button-sized
+        # rather than stretching each across half the page.
+        push_col, refine_col, _ = st.columns([1, 1, 2])
+        push_clicked = push_col.button(
+            "🚀 Push to Software Engineer",
+            key="rc_push_to_engineer",
+            type="primary",
+            use_container_width=True,
+        )
+        # Only offered while the box is hidden - once it's back, it's already
+        # there to add to.
+        if awaiting_push and refine_col.button(
+            "✏️ Add something first", key="rc_refine", use_container_width=True
+        ):
+            st.session_state["rc_refine_open"] = True
+            st.rerun()
+        if push_clicked:
             pm_result, architect_result = ready_pair
             session_id = st.session_state["rc_session_id"]
             build_result = None
