@@ -252,6 +252,50 @@ if st.query_params.get("admin") is not None:
                 render_cost_tab()
     st.stop()
 
+# Inject req2prod branding logo
+st.markdown(
+    """
+    <style>
+        @keyframes req2prod_pulse {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+        
+        #req2prod-demo-logo {
+            position: fixed;
+            top: 12px;
+            right: 16px;
+            z-index: 1000;
+        }
+        
+        #req2prod-demo-logo .animated-rect {
+            animation: req2prod_pulse 1.1s ease-in-out infinite;
+        }
+    </style>
+
+    <svg id="req2prod-demo-logo" width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="req2prod_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#818cf8;stop-opacity:1" />
+                <stop offset="50%" style="stop-color:#a78bfa;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#f1f5f9;stop-opacity:1" />
+            </linearGradient>
+        </defs>
+        
+        <!-- Background circle for visual containment -->
+        <circle cx="60" cy="60" r="58" fill="none" stroke="#818cf8" stroke-width="2" opacity="0.4"/>
+        
+        <!-- Animated rectangle (the primary animation element) -->
+        <rect class="animated-rect" x="35" y="35" width="50" height="50" fill="url(#req2prod_grad)" stroke="#a78bfa" stroke-width="2" rx="4"/>
+        
+        <!-- Fixed accent element for branding -->
+        <circle cx="85" cy="40" r="6" fill="#818cf8"/>
+    </svg>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown(
     """
     <style>
