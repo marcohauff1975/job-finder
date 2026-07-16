@@ -45,6 +45,33 @@ def test_empty_site_dir_does_not_wipe_published_site(tmp_path):
     assert (dest / "index.html").read_text() == "live page"
 
 
+def test_site_dir_with_only_dotfile_does_not_wipe_published_site(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "site").mkdir(parents=True)
+    (repo / "site" / ".gitkeep").write_text("")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    (dest / "index.html").write_text("live page")
+
+    result = run_sync(repo, dest)
+
+    assert result.returncode != 0
+    assert (dest / "index.html").read_text() == "live page"
+
+
+def test_site_dir_with_only_empty_subdir_does_not_wipe_published_site(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "site" / "main").mkdir(parents=True)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    (dest / "index.html").write_text("live page")
+
+    result = run_sync(repo, dest)
+
+    assert result.returncode != 0
+    assert (dest / "index.html").read_text() == "live page"
+
+
 def test_syncs_the_tree(tmp_path):
     repo = tmp_path / "repo"
     (repo / "site" / "main").mkdir(parents=True)

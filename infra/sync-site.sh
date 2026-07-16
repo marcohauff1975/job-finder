@@ -12,14 +12,15 @@ REPO_DIR="${1:?usage: sync-site.sh <repo-dir>}"
 SRC="$REPO_DIR/site"
 DEST="${DEST_OVERRIDE:-/var/www/req2prod.nl}"
 
-# rsync --delete mirrors the source. Against a missing or empty source it would
-# wipe the live site, so refuse rather than publish nothing.
+# rsync --delete mirrors the source. Against a missing source, or one with no
+# publishable content (only dotfiles and/or empty directories), it would wipe
+# the live site, so refuse rather than publish nothing.
 if [ ! -d "$SRC" ]; then
   echo "refusing to sync: $SRC does not exist" >&2
   exit 1
 fi
-if [ -z "$(ls -A "$SRC")" ]; then
-  echo "refusing to sync: $SRC is empty (--delete would wipe $DEST)" >&2
+if [ -z "$(find "$SRC" -type f -not -path '*/.*' -print -quit)" ]; then
+  echo "refusing to sync: $SRC has nothing publishable (--delete would wipe $DEST)" >&2
   exit 1
 fi
 
