@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Req2Prod — Investor Overview</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --panel:#161622; --panel2:#12121c; --input:#0e0e15;
+    --text:#f1f5f9; --muted:#9096a6; --muted2:#6b7180;
+    --accent:#818cf8; --accent2:#a78bfa; --accentdim:rgba(129,140,248,.14);
+    --amber:#f59e0b; --cyan:#22d3ee; --green:#4ade80;
+    --border:rgba(241,245,249,.10); --border2:rgba(241,245,249,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:"Source Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;color:var(--text)}
+  .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
+  .accent{color:var(--accent)}
+  .page{width:210mm;height:297mm;background:var(--bg);position:relative;overflow:hidden;
+    padding:14mm 14mm 12mm;display:flex;flex-direction:column}
+  .page + .page{margin-top:8mm}
+  @page{size:A4;margin:0}
+  @media print{.page + .page{margin-top:0}}
+
+  /* ambient */
+  .page::before{content:"";position:absolute;top:-120px;left:50%;transform:translateX(-50%);
+    width:640px;height:340px;background:radial-gradient(closest-side,rgba(129,140,248,.16),transparent 70%);pointer-events:none}
+
+  /* header */
+  .head{display:flex;align-items:center;justify-content:space-between;padding-bottom:11px;border-bottom:1px solid var(--border2);position:relative;z-index:2}
+  .brand{display:flex;align-items:center;gap:9px}
+  .brand svg{width:26px;height:26px;flex:0 0 auto}
+  .brand .wm{font-weight:700;font-size:19px;letter-spacing:-1px;display:block;line-height:1}
+  .brand .tagline{font-size:9px;color:var(--muted);letter-spacing:.4px;margin-top:3px;white-space:nowrap}
+  .tagpill{font-size:10.5px;color:var(--muted);border:1px solid var(--border);background:var(--panel);
+    padding:4px 11px;border-radius:100px;letter-spacing:.4px}
+
+  h1{font-size:25px;line-height:1.1;letter-spacing:-.8px;font-weight:800;margin:18px 0 8px;position:relative;z-index:2}
+  .grad{color:#c3c9ff}
+  .hero-tag{font-size:13.5px;font-weight:600;color:#a5adf7;letter-spacing:.2px;margin:0 0 14px;position:relative;z-index:2}
+  .lead{font-size:12px;color:var(--muted);line-height:1.55;max-width:172mm;position:relative;z-index:2}
+  .lead b{color:var(--text);font-weight:600}
+
+  .kicker{color:var(--accent);font-size:10px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;margin-bottom:8px}
+  .sect-t{font-size:15px;font-weight:800;letter-spacing:-.3px;margin-bottom:2px}
+
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px}
+  .diagram-wrap{margin-top:14px;position:relative;z-index:2}
+  svg{display:block;width:100%;height:auto}
+
+  /* legend */
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:9px;font-size:10px;color:var(--muted)}
+  .legend .k{display:flex;align-items:center;gap:6px}
+  .swatch{width:16px;height:3px;border-radius:2px}
+  .swatch.dash{background:none;border-top:2px dashed var(--accent)}
+
+  /* example run strip */
+  .example{margin-top:20px;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:13px 16px;position:relative;z-index:2}
+  .ex-line{font-size:12px;margin-bottom:11px}
+  .ex-line .ex-q{color:var(--muted)}
+  .ex-chips{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .chip{font-size:9.5px;font-weight:600;padding:4px 9px;border-radius:6px;background:var(--accentdim);
+    color:#aab1ff;border:1px solid rgba(129,140,248,.25)}
+  .chip.gate{background:rgba(74,222,128,.1);color:#8ff0b0;border-color:rgba(74,222,128,.3)}
+  .chip.live{background:#0f1e14;color:#4ade80;border-color:rgba(74,222,128,.5)}
+  .chevron{color:var(--muted2);font-size:10px}
+
+  /* value strip */
+  .vstrip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
+  .vcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:13px 14px}
+  .vcard .vt{font-size:12.5px;font-weight:700;margin-bottom:3px}
+  .vcard .vt .ic{color:var(--accent)}
+  .vcard p{font-size:10px;color:var(--muted);line-height:1.5}
+
+  .footer{margin-top:12px;padding-top:9px;border-top:1px solid var(--border2);
+    display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:var(--muted2);position:relative;z-index:2}
+  .footer .mono{color:var(--muted)}
+
+  /* PAGE 2 */
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;position:relative;z-index:2}
+  .anatomy{padding:16px 16px 14px}
+  .anatomy h3{font-size:13px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .layer{display:flex;gap:11px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--border2)}
+  .layer:last-child{border-bottom:none}
+  .layer .lic{flex:0 0 auto;width:30px;height:30px;border-radius:8px;background:var(--accentdim);
+    border:1px solid rgba(129,140,248,.3);display:flex;align-items:center;justify-content:center}
+  .layer .lt{font-size:11.5px;font-weight:700}
+  .layer .lt .mono{color:var(--accent);font-weight:600;font-size:10px}
+  .layer .ld{font-size:10px;color:var(--muted);line-height:1.45;margin-top:1px}
+  .brainchip{margin-top:12px;background:var(--panel2);border:1px solid rgba(129,140,248,.3);border-radius:10px;
+    padding:10px 12px;display:flex;align-items:center;gap:10px}
+  .brainchip .bt{font-size:11px;font-weight:700}
+  .brainchip .bd{font-size:9.5px;color:var(--muted)}
+
+  /* model table */
+  .modelcard{padding:16px 16px 14px;display:flex;flex-direction:column}
+  .modelcard h3{font-size:13px;margin-bottom:4px}
+  .modelcard .sub{font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.45}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:8.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted2);
+    font-weight:700;padding:0 0 7px}
+  td{padding:7px 0;border-top:1px solid var(--border2);vertical-align:middle}
+  .agc{font-size:11px;font-weight:700}
+  .agc small{display:block;color:var(--muted);font-weight:400;font-size:9px;margin-top:1px}
+  .mbadge{display:inline-block;font-size:9px;font-weight:600;padding:3px 8px;border-radius:6px;
+    background:var(--accentdim);color:#a9b0ff;border:1px solid rgba(129,140,248,.25);white-space:nowrap}
+  .mbadge.local{background:rgba(34,211,238,.12);color:#7fe3f2;border-color:rgba(34,211,238,.28)}
+  .note{font-size:9px;color:var(--muted2);margin-top:11px;line-height:1.5}
+
+  .why2{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;position:relative;z-index:2}
+  .why2 .w{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 13px}
+  .why2 .w .h{font-size:11.5px;font-weight:700;margin-bottom:4px}
+  .why2 .w .h .ic{color:var(--accent)}
+  .why2 .w p{font-size:9.5px;color:var(--muted);line-height:1.5}
+</style>
+</head>
+<body>
+
+<!-- ================= PAGE 1 ================= -->
+<div class="page">
+  <div class="head">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#161622"/><path d="M16 20 L34 32 L16 44" stroke="#818cf8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="40" y="22" width="9" height="20" rx="2" fill="#f1f5f9"/></svg>
+      <span class="wm mono">req<span class="accent">2</span>prod</span>
+    </div>
+  </div>
+
+  <h1>Autonomous software delivery,<br><span class="grad">from requirement to production.</span></h1>
+  <div class="hero-tag">Unattended, LLM-agnostic, agentic SDLC orchestration</div>
+  <p class="lead">Req2Prod turns a plain-language requirement into shipped, production-grade software. Specialised <b>CrewAI agents</b>—orchestrated by a <b>GitHub Actions pipeline</b>, one agent per step—take a change from requirement and build, through automated code review, to deployment and post-deploy testing on the live service. The single human touchpoint is clarification: the Product Manager, Architect and Engineer can loop back to whoever wrote the requirement. Code review loops with a <b>fix agent for up to three rounds</b>, then escalates to an independent <b>arbiter</b>; once deployed, a production test can trigger an automatic <b>rollback</b> or a <b>DevOps agent</b> that fixes and re-deploys. The build front-end and the automated pipeline are joined by a single <b>config switch</b>—kept off today to control model spend—so the full requirement-to-production run is available on demand.</p>
+
+  <div class="diagram-wrap">
+    <div class="kicker">The agent crew &amp; feedback loops</div>
+    <!-- PIPELINE SVG -->
+    <svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" font-family="'Source Sans',sans-serif">
+      <defs>
+        <marker id="arw" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"/></marker>
+        <marker id="arwA" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#f59e0b"/></marker>
+        <marker id="arwC" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#22d3ee"/></marker>
+        <marker id="arwC2" markerWidth="9" markerHeight="9" refX="1" refY="3" orient="auto"><path d="M7 0 L0 3 L7 6 Z" fill="#22d3ee"/></marker>
+        <marker id="arwG" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#4ade80"/></marker>
+        <marker id="arwM" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#e879f9"/></marker>
+        <marker id="arwMs" markerWidth="9" markerHeight="9" refX="1" refY="3" orient="auto"><path d="M7 0 L0 3 L7 6 Z" fill="#e879f9"/></marker>
+      </defs>
+
+      <!-- Orchestrator frame -->
+      <rect x="152" y="64" width="830" height="478" rx="16" fill="rgba(129,140,248,.03)" stroke="#818cf8" stroke-opacity=".3"/>
+      <text x="172" y="88" fill="#c7c9ff" font-size="12" font-weight="700">GitHub Actions pipeline · CrewAI agent per step</text>
+      <!-- Runtime badge: cloud (laptop off) or self-hosted -->
+      <rect x="684" y="74" width="158" height="17" rx="8.5" fill="rgba(129,140,248,.14)" stroke="#818cf8" stroke-opacity=".45"/>
+      <g transform="translate(691,78)" fill="#aab1ff"><circle cx="3" cy="4" r="2.4"/><circle cx="6.5" cy="3" r="3"/><circle cx="9.6" cy="4.2" r="2.1"/><rect x="2.2" y="4" width="8" height="2.6" rx="1.2"/></g>
+      <text x="706" y="86" fill="#c7d0ff" font-size="7.5" font-weight="600">GitHub-hosted · laptop off</text>
+      <rect x="850" y="74" width="124" height="17" rx="8.5" fill="#12121c" stroke="#9096a6" stroke-opacity=".4"/>
+      <g transform="translate(857,78)" fill="none" stroke="#9096a6" stroke-width="1.2"><rect x="0.5" y="0.5" width="10" height="7" rx="1"/><path d="M4 10 h3 M5.5 7.5 v2"/></g>
+      <text x="872" y="86" fill="#9096a6" font-size="7.5" font-weight="600">self-hosted / local</text>
+
+      <!-- HUMAN (only human touchpoint) -->
+      <rect x="18" y="196" width="116" height="104" rx="13" fill="#0c1620" stroke="#22d3ee" stroke-opacity=".55"/>
+      <g transform="translate(76,224)" stroke="#22d3ee" stroke-width="2" fill="none"><circle cx="0" cy="-4" r="7"/><path d="M-12 14 a12 11 0 0 1 24 0"/></g>
+      <text x="76" y="266" text-anchor="middle" fill="#f1f5f9" font-size="10.5" font-weight="700">Requirement</text>
+      <text x="76" y="279" text-anchor="middle" fill="#f1f5f9" font-size="10.5" font-weight="700">inputter</text>
+      <text x="76" y="292" text-anchor="middle" fill="#7fe3f2" font-size="8.5">(human)</text>
+      <!-- requirement into crew -->
+      <path d="M134 236 L164 200 L180 190" fill="none" stroke="#818cf8" stroke-width="2" marker-end="url(#arw)"/>
+      <text x="150" y="212" fill="#818cf8" font-size="8" transform="rotate(-24 150 212)">requirement</text>
+
+      <!-- ===== TOP ROW: build ===== -->
+      <g font-size="10.5">
+        <!-- Product Manager -->
+        <rect x="180" y="150" width="150" height="80" rx="12" fill="#161622" stroke="rgba(241,245,249,.12)"/>
+        <text x="255" y="182" text-anchor="middle" fill="#f1f5f9" font-weight="700">Product Manager</text>
+        <text x="255" y="199" text-anchor="middle" fill="#9096a6" font-size="8.5">scopes intent,</text>
+        <text x="255" y="210" text-anchor="middle" fill="#9096a6" font-size="8.5">flags ambiguity</text>
+        <!-- Architect -->
+        <rect x="372" y="150" width="150" height="80" rx="12" fill="#161622" stroke="rgba(241,245,249,.12)"/>
+        <text x="447" y="182" text-anchor="middle" fill="#f1f5f9" font-weight="700">Software Architect</text>
+        <text x="447" y="199" text-anchor="middle" fill="#9096a6" font-size="8.5">plans &amp; designs</text>
+        <text x="447" y="210" text-anchor="middle" fill="#9096a6" font-size="8.5">the change</text>
+        <!-- Software Engineer -->
+        <rect x="564" y="150" width="150" height="80" rx="12" fill="#1a1a2e" stroke="#818cf8" stroke-opacity=".5"/>
+        <text x="639" y="182" text-anchor="middle" fill="#f1f5f9" font-weight="700">Software Engineer</text>
+        <text x="639" y="199" text-anchor="middle" fill="#9096a6" font-size="8.5">writes the code,</text>
+        <text x="639" y="210" text-anchor="middle" fill="#9096a6" font-size="8.5">opens the PR</text>
+        <!-- Reviewer -->
+        <rect x="756" y="150" width="150" height="80" rx="12" fill="#161622" stroke="rgba(241,245,249,.12)"/>
+        <text x="831" y="182" text-anchor="middle" fill="#f1f5f9" font-weight="700">Code Reviewer</text>
+        <text x="831" y="199" text-anchor="middle" fill="#9096a6" font-size="8.5">gates every</text>
+        <text x="831" y="210" text-anchor="middle" fill="#9096a6" font-size="8.5">merge</text>
+      </g>
+      <!-- top arrows -->
+      <g stroke="#818cf8" stroke-width="2" marker-end="url(#arw)">
+        <line x1="330" y1="190" x2="372" y2="190"/>
+        <line x1="522" y1="190" x2="564" y2="190"/>
+      </g>
+      <!-- Engineer -> Reviewer: PR handoff via a configurable auto-link (currently OFF for cost) -->
+      <line x1="714" y1="190" x2="756" y2="190" stroke="#818cf8" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arw)"/>
+      <rect x="721" y="167" width="28" height="13" rx="6.5" fill="#12121c" stroke="#9096a6" stroke-opacity=".7"/>
+      <circle cx="728" cy="173.5" r="4" fill="#9096a6"/>
+      <!-- config-switch note -->
+      <rect x="452" y="250" width="220" height="36" rx="8" fill="#12121c" stroke="#9096a6" stroke-opacity=".4"/>
+      <text x="562" y="264" text-anchor="middle" fill="#c7c9ff" font-size="8.5" font-weight="700">requirement → pipeline auto-link</text>
+      <text x="562" y="276" text-anchor="middle" fill="#9096a6" font-size="7.5">built-in config switch · currently OFF (cost)</text>
+      <path d="M672 260 C712 252 722 202 735 187" fill="none" stroke="#9096a6" stroke-width="1" stroke-dasharray="3 3"/>
+
+      <!-- pr_arbiter (escalation, above) -->
+      <rect x="765" y="98" width="132" height="30" rx="9" fill="#1c1420" stroke="#e879f9" stroke-opacity=".65"/>
+      <text x="831" y="111" text-anchor="middle" fill="#e879f9" font-size="9.5" font-weight="700">pr_arbiter</text>
+      <text x="831" y="122" text-anchor="middle" fill="#c98fd6" font-size="7.5">final merge / hold decision</text>
+      <path d="M831 150 L831 128" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arwM)"/>
+      <text x="840" y="144" fill="#e879f9" font-size="7">escalate</text>
+
+      <!-- pr_fix_agent (fix loop, below) -->
+      <rect x="795" y="252" width="132" height="32" rx="9" fill="#1c1420" stroke="#e879f9" stroke-opacity=".65"/>
+      <text x="861" y="266" text-anchor="middle" fill="#e879f9" font-size="9.5" font-weight="700">pr_fix_agent</text>
+      <text x="861" y="277" text-anchor="middle" fill="#c98fd6" font-size="7.5">applies fixes</text>
+      <path d="M820 230 L820 252" fill="none" stroke="#e879f9" stroke-width="1.5" marker-end="url(#arwM)"/>
+      <path d="M888 252 L888 230" fill="none" stroke="#e879f9" stroke-width="1.5" marker-end="url(#arwM)"/>
+      <text x="861" y="300" text-anchor="middle" fill="#e879f9" font-size="7.5" font-weight="600">fix ⟲ re-review · max 3 rounds</text>
+
+      <!-- merge serpentine: Reviewer -> Production -->
+      <path d="M770 230 L770 320 L275 320 L275 360" fill="none" stroke="#818cf8" stroke-width="2" marker-end="url(#arw)"/>
+      <text x="520" y="313" text-anchor="middle" fill="#6b7180" font-size="8">merge to main → deploy</text>
+
+      <!-- ===== BOTTOM ROW: ship & remediate ===== -->
+      <g font-size="10">
+        <!-- Production (deploy / live) -->
+        <rect x="200" y="360" width="150" height="80" rx="12" fill="#0f1e14" stroke="#4ade80" stroke-opacity=".55"/>
+        <text x="275" y="389" text-anchor="middle" fill="#4ade80" font-size="16" font-weight="700">▲</text>
+        <text x="275" y="408" text-anchor="middle" fill="#f1f5f9" font-size="10.5" font-weight="700">Production</text>
+        <text x="275" y="420" text-anchor="middle" fill="#9096a6" font-size="8.5">deploy · live</text>
+        <!-- Production Test -->
+        <rect x="430" y="360" width="150" height="80" rx="12" fill="#161622" stroke="rgba(241,245,249,.12)"/>
+        <text x="505" y="392" text-anchor="middle" fill="#f1f5f9" font-weight="700" font-size="10.5">Production Test</text>
+        <text x="505" y="408" text-anchor="middle" fill="#9096a6" font-size="8.5">prod_tester · smoke</text>
+        <text x="505" y="419" text-anchor="middle" fill="#9096a6" font-size="8.5">&amp; health in prod</text>
+        <!-- DevOps -->
+        <rect x="660" y="360" width="150" height="80" rx="12" fill="#161622" stroke="rgba(241,245,249,.12)"/>
+        <text x="735" y="392" text-anchor="middle" fill="#f1f5f9" font-weight="700" font-size="10.5">DevOps</text>
+        <text x="735" y="408" text-anchor="middle" fill="#9096a6" font-size="8.5">devops_agent ·</text>
+        <text x="735" y="419" text-anchor="middle" fill="#9096a6" font-size="8.5">diagnose &amp; fix</text>
+      </g>
+      <!-- bottom arrows -->
+      <line x1="350" y1="400" x2="430" y2="400" stroke="#4ade80" stroke-width="2" marker-end="url(#arwG)"/>
+      <path d="M580 400 L660 400" fill="none" stroke="#f59e0b" stroke-width="2" marker-end="url(#arwA)"/>
+      <text x="620" y="392" text-anchor="middle" fill="#f59e0b" font-size="7.5">on failure</text>
+      <text x="505" y="458" text-anchor="middle" fill="#4ade80" font-size="8">healthy ✓ → stays live</text>
+
+      <!-- Rollback (rollback_agent) + remediation loops -->
+      <rect x="435" y="472" width="140" height="34" rx="9" fill="#211a10" stroke="#f59e0b" stroke-opacity=".65"/>
+      <text x="505" y="487" text-anchor="middle" fill="#f59e0b" font-size="9.5" font-weight="700">rollback_agent</text>
+      <text x="505" y="498" text-anchor="middle" fill="#d6a659" font-size="7.5">restore previous commit</text>
+      <path d="M505 440 L505 472" fill="none" stroke="#f59e0b" stroke-width="1.8" marker-end="url(#arwA)"/>
+      <text x="513" y="464" fill="#f59e0b" font-size="7.5">✗ smoke fail</text>
+      <path d="M435 489 L275 489 L275 440" fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arwA)"/>
+      <text x="300" y="502" fill="#f59e0b" font-size="7.5">restore last good</text>
+      <path d="M735 440 L735 520 L292 520 L292 440" fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arwA)"/>
+      <text x="470" y="516" text-anchor="middle" fill="#f59e0b" font-size="7.5">fix &amp; re-deploy</text>
+
+      <!-- Clarification: PM / Architect / Engineer -> requirement inputter (ONLY human step) -->
+      <g stroke="#22d3ee" stroke-width="1.6" stroke-dasharray="5 4" fill="none">
+        <path d="M255 150 L255 140 L166 140"/>
+        <path d="M447 150 L447 140 L166 140"/>
+        <path d="M660 150 L660 140 L166 140"/>
+        <path d="M166 140 L150 140 L150 248 L134 248" marker-end="url(#arwC)"/>
+      </g>
+      <text x="402" y="129" text-anchor="middle" fill="#22d3ee" font-size="8.5" font-weight="600">clarification — the only human touchpoint</text>
+    </svg>
+
+    <div class="legend">
+      <div class="k"><span class="swatch" style="background:#818cf8"></span> Delivery flow (build → review → deploy)</div>
+      <div class="k"><span class="swatch" style="background:#22d3ee"></span> Clarification → requirement inputter (only human step)</div>
+      <div class="k"><span class="swatch" style="background:#e879f9"></span> Code-review fix loop (max 3 rounds) → pr_arbiter</div>
+      <div class="k"><span class="swatch" style="background:#f59e0b"></span> Prod-test failure → rollback_agent / devops_agent</div>
+      <div class="k"><span class="swatch" style="background:#4ade80"></span> Production / live</div>
+    </div>
+  </div>
+
+  <div class="vstrip">
+    <div class="vcard">
+      <div class="vt"><span class="ic">◆</span> Requirement in, software out</div>
+      <p>Collapses the whole SDLC—analysis, build, test, review, release—into one autonomous, auditable flow.</p>
+    </div>
+    <div class="vcard">
+      <div class="vt"><span class="ic">↻</span> Self-correcting by design</div>
+      <p>Code review loops with a fix agent up to 3 rounds, then an independent arbiter decides; failed prod tests auto-rollback or invoke DevOps—no silent bad output.</p>
+    </div>
+    <div class="vcard">
+      <div class="vt"><span class="ic">⚙</span> Model-tiered &amp; controlled</div>
+      <p>Each agent runs its own Claude tier (Haiku→Opus) from a model registry; the sole human step is requirement clarification. Tuned on cost, safe on risk.</p>
+    </div>
+  </div>
+
+  <div class="footer" style="margin-top:auto">
+    <span>Req2Prod · Marco Hauff · req2prod.nl</span>
+    <span class="mono">req2prod — cradle to production · page 1 / 2</span>
+  </div>
+</div>
+
+<!-- ================= PAGE 2 ================= -->
+<div class="page">
+  <div class="head">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#161622"/><path d="M16 20 L34 32 L16 44" stroke="#818cf8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="40" y="22" width="9" height="20" rx="2" fill="#f1f5f9"/></svg>
+      <span class="wm mono">req<span class="accent">2</span>prod</span>
+    </div>
+    <span class="tagpill">HOW IT'S BUILT · GITHUB ACTIONS + CREWAI</span>
+  </div>
+
+  <h1 style="font-size:21px">Orchestrated by <span class="grad">GitHub Actions</span>, powered by CrewAI agents.</h1>
+  <p class="lead">A GitHub Actions pipeline sequences the work step by step—code review, merge, deploy, production test, rollback, DevOps—and each step runs a CrewAI agent defined the same disciplined way. That split keeps the system easy to reason about, govern and audit: new capabilities are added by dropping in a new agent, not by rewriting the pipeline.</p>
+
+  <div class="two-col">
+    <!-- Anatomy of an agent -->
+    <div class="panel anatomy">
+      <h3><span class="accent">◈</span> Anatomy of a Req2Prod agent</h3>
+
+      <div class="layer">
+        <div class="lic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 12 0v1"/></svg></div>
+        <div><div class="lt">Agent <span class="mono">· role + goal</span></div><div class="ld">Who it is and what it's accountable for—e.g. "Software Engineer: implement the task in clean, tested Python."</div></div>
+      </div>
+
+      <div class="layer">
+        <div class="lic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+        <div><div class="lt">Backstory <span class="mono">· persona priming</span></div><div class="ld">Context and expertise that shape how the agent reasons and the standards it holds itself to.</div></div>
+      </div>
+
+      <div class="layer">
+        <div class="lic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+        <div><div class="lt">Task <span class="mono">· description + expected output</span></div><div class="ld">The concrete unit of work and its acceptance criteria, assigned and tracked by the orchestrator.</div></div>
+      </div>
+
+      <div class="layer">
+        <div class="lic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 6 0v-1a3 3 0 0 0 2-5 3 3 0 0 0-2-5V5a3 3 0 0 0-3-3z"/></svg></div>
+        <div><div class="lt">Memory <span class="mono">· short + long term</span></div><div class="ld">Recall of the project context, prior decisions and past runs—so the crew learns and stays consistent.</div></div>
+      </div>
+
+      <div class="layer">
+        <div class="lic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.6 5.6l-6 6a2 2 0 0 0 2.8 2.8l6-6a4 4 0 0 0 5.6-5.6l-2.5 2.5-2.1-2.1z"/></svg></div>
+        <div><div class="lt">Skill <span class="mono">· tools it can call</span></div><div class="ld">The real actions—run code, execute tests, use git, query docs, deploy—that turn reasoning into results.</div></div>
+      </div>
+
+      <div class="brainchip">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+        <div><div class="bt">LLM — set per agent in a registry <span class="accent mono" style="font-size:9px">swap the brain, keep the role</span></div><div class="bd">Haiku for cheap mechanical steps, Opus where the stakes are high, Sonnet by default—tuned role-by-role.</div></div>
+      </div>
+    </div>
+
+    <!-- Model per agent -->
+    <div class="panel modelcard">
+      <h3><span class="accent">⚙</span> One model per agent — set in a registry</h3>
+      <div class="sub">Each agent's model is set independently in a model registry (<span class="mono">config/agent_models.json</span>), with separate API and self-hosted "subscription" tiers. Changing a model is a one-line change.</div>
+      <table>
+        <thead><tr><th>Agent</th><th style="text-align:right">Model (API tier)</th></tr></thead>
+        <tbody>
+          <tr><td class="agc">Product Manager<small>scopes intent, flags ambiguity</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">Software Architect<small>plans &amp; designs the change</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">Software Engineer<small>writes the code, opens the PR</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">code_reviewer<small>gates every merge</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">pr_fix_agent<small>fixes review findings</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">pr_arbiter<small>final merge / hold decision</small></td><td style="text-align:right"><span class="mbadge">claude-opus-4-8</span></td></tr>
+          <tr><td class="agc">prod_tester<small>smoke &amp; health checks in prod</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">devops_agent<small>diagnoses &amp; fixes deploy failures</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">rollback_agent<small>restores previous commit</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
+        </tbody>
+      </table>
+      <div class="note">Real assignments from the registry: <span class="mono">Haiku</span> for mechanical steps, <span class="mono">Opus</span> for high-stakes decisions, <span class="mono">Sonnet</span> as the default. Eight further agents (security, UX, and a CTO-led tech-excellence panel) round out the crew.</div>
+    </div>
+  </div>
+
+  <div class="why2">
+    <div class="w"><div class="h"><span class="ic">▣</span> No lock-in</div><p>Model-agnostic architecture rides the frontier as it moves and negotiates on price—never trapped on one vendor.</p></div>
+    <div class="w"><div class="h"><span class="ic">✓</span> Enterprise-ready control</div><p>An independent merge arbiter, automatic rollback, and a circuit-breaker on the DevOps agent keep it safe for regulated buyers.</p></div>
+    <div class="w"><div class="h"><span class="ic">⤢</span> Extensible by construction</div><p>New agents slot into the same GitHub-Actions + CrewAI structure—fast to adapt to new stacks and domains.</p></div>
+  </div>
+
+  <div class="footer" style="margin-top:auto">
+    <span>Contact · Marco Hauff · marco.hauff@gmail.com · req2prod.nl</span>
+    <span class="mono">© 2026 Req2Prod · Confidential · page 2 / 2</span>
+  </div>
+</div>
+
+</body>
+</html>
