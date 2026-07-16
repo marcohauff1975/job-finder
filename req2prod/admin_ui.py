@@ -434,13 +434,12 @@ def render_requirements_tab() -> None:
             "click. On: merging a PR into main auto-deploys straight to production.",
         )
         if toggled_deploy_mode != current_deploy_mode:
-            # Streamlit already reran once to deliver this toggle
-            # interaction, and the widget's own state already reflects
-            # the user's choice - no need to force a second rerun (and
-            # a second get_auto_deploy_mode() API call) on success. Only
-            # force one on failure, to snap the toggle back to the real
-            # state instead of leaving it showing a value that was never
-            # actually applied.
+            # Rerun after applying the change so the "Current value"
+            # caption above (rendered with the pre-toggle value) re-reads
+            # the freshly-applied state - otherwise it keeps showing the
+            # old value until the next interaction, which reads like the
+            # toggle didn't take. On failure we also snap the toggle back
+            # to the real state.
             if not set_auto_deploy_mode(toggled_deploy_mode):
                 st.error(
                     "Couldn't update the deploy mode - check GITHUB_VARIABLES_TOKEN's "
@@ -451,6 +450,10 @@ def render_requirements_tab() -> None:
                 st.rerun()
             else:
                 st.session_state["_rc_deploy_mode_last_seen"] = toggled_deploy_mode
+                # Rerun so the "Current value" caption above re-reads the
+                # freshly-applied value, instead of continuing to show the
+                # pre-toggle state until the next interaction.
+                st.rerun()
 
     messages = st.session_state.get("rc_messages", [])
 
