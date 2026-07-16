@@ -1,0 +1,13 @@
+[Unit]
+Description=Req2Prod Admin Console (Streamlit)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/crewai-starter
+ExecStart=/home/ubuntu/crewai-starter/venv/bin/streamlit run req2prod_app.py --server.port 8502 --server.address 127.0.0.1 --server.headless true --server.baseUrlPath /app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

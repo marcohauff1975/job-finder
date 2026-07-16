@@ -59,6 +59,14 @@ TIER_PAID = "paid"
 TIER_POWER = "power"
 VALID_TIERS = (TIER_FREE, TIER_PAID, TIER_POWER)
 
+# The account that bypasses the daily search/research quotas, and the one the
+# admin console's Overview tab reports on. Here rather than in streamlit_app.py
+# because both sides need it and they are about to stop being the same process:
+# the public app checks it per search, the console passes it to
+# render_overview_tab(). Two copies of an address is one rename away from an
+# admin page quietly reporting on nobody.
+UNLIMITED_USER = "marco.hauff@gmail.com"
+
 # Throwaway accounts used by automated/manual testing (the ux_reviewer
 # Req2Prod agent, local QA, this session's own scratch testing) all use the
 # @example.com domain - forcing them onto the free tier regardless of

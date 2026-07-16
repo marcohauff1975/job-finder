@@ -33,7 +33,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
 
 from auth import AuthManager
-from reporting import get_user_tier, record_cv_generated
+from reporting import UNLIMITED_USER, get_user_tier, record_cv_generated
 from job_search import (
     FORMAT_TEMPLATES,
     build_tailored_docx_bytes,
@@ -65,7 +65,6 @@ load_dotenv()
 USERS_DIR = Path(__file__).parent / "users"
 DAILY_SEARCH_LIMIT = 5
 DAILY_RESEARCH_LIMIT = 1
-UNLIMITED_USER = "marco.hauff@gmail.com"
 
 ADMIN_SECRET_NAME = "job-finder/admin-password"
 AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
