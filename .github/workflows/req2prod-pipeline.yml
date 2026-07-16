@@ -219,6 +219,14 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
             "cd $REMOTE_APP_DIR && git rm --cached --ignore-unmatch req2prod/config/agent_models.json && git pull --ff-only origin main"
 
+      # nginx serves /req2prod from /var/www, not from the checkout, so the pull
+      # above does not update the page that is actually served. Without this the
+      # checkout advances and /var/www silently keeps serving the old one-pager.
+      - name: Sync the req2prod one-pager to /var/www
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -i /tmp/deploy_key "$REMOTE_USER@$INSTANCE_IP" \
+            "sudo mkdir -p /var/www/req2prod && sudo cp $REMOTE_APP_DIR/static/req2prod/index.html /var/www/req2prod/index.html"
+
       - name: Decide whether a restart is actually needed
         id: diff
         run: |
