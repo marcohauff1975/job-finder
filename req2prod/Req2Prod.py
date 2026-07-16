@@ -1252,7 +1252,9 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
 
 
 def build_feature(
-    pm_result: FeatureRequirementsResult, architect_result: ArchitectureDirectionResult
+    pm_result: FeatureRequirementsResult,
+    architect_result: ArchitectureDirectionResult,
+    original_request: str = "",
 ) -> FeatureBuildResult | None:
     """Run software_engineer against requirements/direction that a
     Requirements Challenge conversation (challenge_requirement()) has
@@ -1280,6 +1282,15 @@ def build_feature(
     inputs = {
         "pm_requirements": _format_requirements_for_engineer(pm_result),
         "architecture_direction": _format_architecture_for_engineer(architect_result),
+        # The PM's requirements are a summary, so any exact content the
+        # request carried (an inline SVG, a code snippet, specific copy)
+        # doesn't survive into them - it gets referred to but not
+        # reproduced. Passing the verbatim request through as well is what
+        # lets the engineer use that content instead of inventing it or
+        # asking where it is (observed 2026-07-16: the demo "add the
+        # req2prod logo" request embeds the exact SVG, and the engineer
+        # correctly refused to guess one because it was never given it).
+        "original_request": original_request.strip() or "(not provided)",
     }
     if os.environ.get("AGENT_BACKEND", "api") == "subscription":
         build_result = _build_feature_via_subscription(inputs)
