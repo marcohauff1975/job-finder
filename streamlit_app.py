@@ -296,8 +296,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-</antml_parameter>
-
 
 HERO_BADGE_HTML = '<div class="hero-badge">✨ Powered by AI agents</div>'
 
