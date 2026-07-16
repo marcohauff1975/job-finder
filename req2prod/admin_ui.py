@@ -397,30 +397,55 @@ def render_requirements_tab() -> None:
         st.session_state["rc_demo_nonce"] = st.session_state.get("rc_demo_nonce", 0) + 1
 
     current_deploy_mode = get_auto_deploy_mode()
+    is_live_deploy_mode = current_deploy_mode is not None
+    # Single-use: popped here every render (whether or not it ends up being
+    # used) so a value from one successful toggle can never sit around and
+    # get mistaken for a live read on some later, unrelated fetch failure.
+    stale_confirmed_deploy_mode = st.session_state.pop("_rc_deploy_mode_confirmed", None)
+    if current_deploy_mode is None:
+        # Immediately after our own successful set_auto_deploy_mode() call
+        # below, we rerun to refresh this section - if that immediate
+        # re-fetch hits a transient failure (timeout, rate limit), fall back
+        # to the value we just confirmed we wrote instead of hiding the
+        # whole toggle behind the warning right after the user's own click.
+        current_deploy_mode = stale_confirmed_deploy_mode
     if current_deploy_mode is None:
         st.caption(
             "⚠️ Can't read the current deploy workflow mode - GITHUB_VARIABLES_TOKEN is "
             "either missing or doesn't have permission to read repo Actions variables."
         )
     else:
-        # st.toggle's own cached state (via its key) persists across
-        # reruns/page loads within a session, independent of value= -
-        # value= only seeds it on first render. If AUTO_DEPLOY_ON_MERGE
-        # changes through anything other than this exact toggle (the
-        # desktop "Toggle Demo Mode" icon, editing the GitHub variable
-        # directly), a stale cached state can silently disagree with
-        # the freshly-fetched current_deploy_mode - and the mismatch
-        # check below would then treat that staleness as if it were a
-        # fresh user click, silently pushing the stale cached value
-        # back to GitHub and reverting someone else's change. Observed
-        # live (2026-07-12): the caption and the toggle disagreed after
-        # an external change, and GitHub's real value had already been
-        # overwritten back to the toggle's stale position. Resyncing
-        # here, before the widget renders, whenever the external value
-        # has moved since we last saw it, closes that gap.
-        if st.session_state.get("_rc_deploy_mode_last_seen") != current_deploy_mode:
-            st.session_state["rc_auto_deploy_toggle"] = current_deploy_mode
-        st.session_state["_rc_deploy_mode_last_seen"] = current_deploy_mode
+        if not is_live_deploy_mode:
+            # This is the single-use fallback, not a fresh read - never treat
+            # it as authoritative for resync/write-back purposes below, so a
+            # stale value can't force the toggle or get written back to
+            # GitHub over someone else's real, external change.
+            st.caption(
+                "⚠️ Showing the value from this session's last successful toggle - "
+                "the live read just failed, so this may not reflect a change made "
+                "elsewhere since then."
+            )
+        else:
+            # st.toggle's own cached state (via its key) persists across
+            # reruns/page loads within a session, independent of value= -
+            # value= only seeds it on first render. If AUTO_DEPLOY_ON_MERGE
+            # changes through anything other than this exact toggle (the
+            # desktop "Toggle Demo Mode" icon, editing the GitHub variable
+            # directly), a stale cached state can silently disagree with
+            # the freshly-fetched current_deploy_mode - and the mismatch
+            # check below would then treat that staleness as if it were a
+            # fresh user click, silently pushing the stale cached value
+            # back to GitHub and reverting someone else's change. Observed
+            # live (2026-07-12): the caption and the toggle disagreed after
+            # an external change, and GitHub's real value had already been
+            # overwritten back to the toggle's stale position. Resyncing
+            # here, before the widget renders, whenever the external value
+            # has moved since we last saw it, closes that gap. Gated on
+            # is_live_deploy_mode so this only ever runs off a real fetch,
+            # never off the single-use fallback above.
+            if st.session_state.get("_rc_deploy_mode_last_seen") != current_deploy_mode:
+                st.session_state["rc_auto_deploy_toggle"] = current_deploy_mode
+            st.session_state["_rc_deploy_mode_last_seen"] = current_deploy_mode
 
         st.caption(
             f"Current value: **{'ON' if current_deploy_mode else 'OFF'}** "
@@ -433,14 +458,13 @@ def render_requirements_tab() -> None:
             "deploying to production after a merge still needs a manual 'Run workflow' "
             "click. On: merging a PR into main auto-deploys straight to production.",
         )
-        if toggled_deploy_mode != current_deploy_mode:
-            # Streamlit already reran once to deliver this toggle
-            # interaction, and the widget's own state already reflects
-            # the user's choice - no need to force a second rerun (and
-            # a second get_auto_deploy_mode() API call) on success. Only
-            # force one on failure, to snap the toggle back to the real
-            # state instead of leaving it showing a value that was never
-            # actually applied.
+        if is_live_deploy_mode and toggled_deploy_mode != current_deploy_mode:
+            # Rerun after applying the change so the "Current value"
+            # caption above (rendered with the pre-toggle value) re-reads
+            # the freshly-applied state - otherwise it keeps showing the
+            # old value until the next interaction, which reads like the
+            # toggle didn't take. On failure we also snap the toggle back
+            # to the real state.
             if not set_auto_deploy_mode(toggled_deploy_mode):
                 st.error(
                     "Couldn't update the deploy mode - check GITHUB_VARIABLES_TOKEN's "
@@ -451,6 +475,13 @@ def render_requirements_tab() -> None:
                 st.rerun()
             else:
                 st.session_state["_rc_deploy_mode_last_seen"] = toggled_deploy_mode
+                # Recorded so the immediate re-fetch on rerun can fall back
+                # to this confirmed value if it transiently fails.
+                st.session_state["_rc_deploy_mode_confirmed"] = toggled_deploy_mode
+                # Rerun so the "Current value" caption above re-reads the
+                # freshly-applied value, instead of continuing to show the
+                # pre-toggle state until the next interaction.
+                st.rerun()
 
     messages = st.session_state.get("rc_messages", [])
 
