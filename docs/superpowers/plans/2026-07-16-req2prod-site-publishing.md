@@ -29,8 +29,10 @@
 - **Never `chmod o+x /home/ubuntu`.** The web server must not gain traverse into
   the app user's home directory. That constraint is why the site is served from
   `/var/www`.
-- Static IP of the box: `16.171.202.23`. Server user: `ubuntu`. App dir on box:
-  `/home/ubuntu/crewai-starter`.
+- Static IP, SSH user, and app directory of the box are production details and
+  are intentionally not recorded in this repo (it is public). Marco has these
+  on hand from prior deploys; agents needing them should ask Marco rather than
+  hard-coding them into a tracked file.
 
 ## Operator Gate
 
@@ -48,7 +50,7 @@ push forward hoping the next one fixes it.
 
 | If this fails | Roll back by |
 |---|---|
-| DNS (Task 3 Step 4) | Revert both A records to `46.30.211.38` at one.com |
+| DNS (Task 3 Step 4) | Revert both A records to the previous IP at one.com (Marco has it on hand) |
 | Server block (Task 3 Step 6) | `sudo rm /etc/nginx/sites-enabled/req2prod`, `sudo nginx -t`, `sudo systemctl reload nginx` |
 | certbot (Task 3 Step 8) | `sudo certbot delete --cert-name req2prod.nl`, then remove the server block as above |
 | Site content (Task 3 Step 7) | `git revert` the content commit, redeploy — rsync mirrors the revert |
@@ -500,10 +502,10 @@ Stop here. Steps 4-9 are Marco's.
 
 | Type | Name | Value |
 |---|---|---|
-| `A` | `@` | `16.171.202.23` |
-| `A` | `www` | `16.171.202.23` |
+| `A` | `@` | `<BOX_IP>` (Marco has the current static IP) |
+| `A` | `www` | `<BOX_IP>` |
 
-Change both from `46.30.211.38`. **A records only — do not add AAAA:** nginx
+Change both from the previous IP. **A records only — do not add AAAA:** nginx
 listens on IPv4 only, so an AAAA record would make IPv6 clients prefer IPv6 and
 fail. Leave the null MX (`0 .`) alone. Lower TTL to 300s first if one.com allows.
 
@@ -513,7 +515,7 @@ fail. Leave the null MX (`0 .`) alone. Lower TTL to 300s first if one.com allows
 dig +short req2prod.nl A
 ```
 
-Expected: `16.171.202.23`. **Do not proceed until this returns the new IP** —
+Expected: the new `<BOX_IP>` value from Step 4. **Do not proceed until this returns the new IP** —
 certbot proves ownership over HTTP on that IP and will fail otherwise.
 
 Expect req2prod.nl to serve Streamlit in this window: DNS points at the box but
@@ -525,7 +527,7 @@ is expected and resolves at Step 6.
 SSH in first (single paste — the key expires in ~2 minutes):
 
 ```
-aws lightsail get-instance-access-details --instance-name job-finder --region eu-north-1 --protocol ssh --no-cli-pager > /tmp/ls-access.json && jq -r '.accessDetails.privateKey' /tmp/ls-access.json > /tmp/ls-key && jq -r '.accessDetails.certKey' /tmp/ls-access.json > /tmp/ls-key-cert.pub && chmod 600 /tmp/ls-key && ssh -i /tmp/ls-key ubuntu@16.171.202.23
+aws lightsail get-instance-access-details --instance-name <LIGHTSAIL_INSTANCE_NAME> --region <AWS_REGION> --protocol ssh --no-cli-pager > /tmp/ls-access.json && jq -r '.accessDetails.privateKey' /tmp/ls-access.json > /tmp/ls-key && jq -r '.accessDetails.certKey' /tmp/ls-access.json > /tmp/ls-key-cert.pub && chmod 600 /tmp/ls-key && ssh -i /tmp/ls-key <SSH_USER>@<BOX_IP>
 ```
 
 Then on the box:
