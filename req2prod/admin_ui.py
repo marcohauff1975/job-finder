@@ -53,6 +53,19 @@ from req2prod_pr_flow import get_latest_pr_flow, render_pr_flow_svg
 # itself and the JS selector that prefills it (see _prefill_chat_input_if_requested).
 _REQUIREMENT_INPUT_PLACEHOLDER = "Describe a feature, or answer the open questions above..."
 
+# The Req2Prod sub-tab labels, in render order, for streamlit_app.py's
+# st.tabs() call. Here rather than inline there because
+# _jump_to_pipeline_tab_if_requested has to find the Pipeline tab in the
+# rendered DOM by its visible text - st.tabs exposes no way to select a tab
+# from Python, so the label a button clicks and the label the tab actually
+# carries have to be one string rather than two that happen to agree.
+REQ2PROD_TAB_LABELS: tuple[str, str, str] = (
+    "Request a New Feature",
+    "Pipeline",
+    "Documentation",
+)
+PIPELINE_TAB_LABEL = REQ2PROD_TAB_LABELS[1]
+
 
 # --- Demo prefill requirements -------------------------------------------
 # Ready-made feature requests seeded (not auto-run) by the "Demo" buttons on
@@ -317,6 +330,71 @@ def _prefill_chat_input_if_requested() -> None:
                 ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 ta.focus();
                 w.__r2pInjectNonce = nonce;
+            }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _latest_build_result(messages: list[dict]) -> dict | None:
+    """The engineer's build result, if opening the pull request is the most
+    recent thing that happened - so the "view it in the Pipeline" button shows
+    up the moment the merge request exists and goes away again as soon as
+    anything else is said. Same last-message rule as _latest_ready_pair.
+
+    Only a successful build carries "data" (a failure appends a plain warning
+    string instead), so its presence is exactly the difference between "there
+    is a PR worth going to look at" and "the build produced nothing"."""
+    if not messages:
+        return None
+    last = messages[-1]
+    if last.get("role") != "software_engineer":
+        return None
+    return last.get("data")
+
+
+def _jump_to_pipeline_tab_if_requested() -> None:
+    """If the "view it in the Pipeline" button was clicked, actually switch to
+    that tab - by clicking it in the browser, because there is no other way.
+
+    st.tabs doesn't surface the active tab as state and offers no API to
+    select one, so this can't be done from Python at all. The only lever is
+    the rendered DOM, via the same window.parent pattern
+    _prefill_chat_input_if_requested and streamlit_app.py's admin-login
+    autofocus already use. Streamlit renders each tab as
+    `button[role="tab"]` whose innerText is the label (verified against
+    Streamlit 1.58, which is pinned in requirements.txt) - matching on
+    PIPELINE_TAB_LABEL rather than a hardcoded string is what keeps this
+    working if the tab is ever renamed.
+
+    Same no-pop + nonce discipline as _prefill_chat_input_if_requested, and
+    for the same reason spelled out there: clearing the flag in this run
+    would tear this iframe down before its own async script gets to run. The
+    nonce instead makes the browser do it exactly once per click, so an
+    ordinary rerun re-renders this (harmless) script and skips. That
+    guard matters more here than for the prefill - this tab's reruns are
+    live crew calls, and a tab switch firing on every one of them is the
+    same class of interruption render_req2prod_pipeline_tab's comment
+    describes cancelling crew runs in production."""
+    if not st.session_state.get("rc_jump_to_pipeline"):
+        return
+    nonce = st.session_state.get("rc_jump_nonce", 0)
+    label = json.dumps(PIPELINE_TAB_LABEL).replace("</", "<\\/")
+    st.components.v1.html(
+        f"""
+        <script>
+        (function () {{
+            try {{
+                const nonce = {nonce};
+                const w = window.parent;
+                if (w.__r2pJumpNonce === nonce) return;  // already jumped for this click
+                w.__r2pJumpNonce = nonce;
+                const label = {label};
+                for (const tab of w.document.querySelectorAll('button[role="tab"]')) {{
+                    if ((tab.innerText || "").trim() === label) {{ tab.click(); return; }}
+                }}
             }} catch (e) {{}}
         }})();
         </script>
@@ -607,14 +685,29 @@ def render_requirements_tab() -> None:
             print("[DIAG] spinner block exited cleanly, about to st.rerun()", flush=True)
             st.rerun()
 
+    # Shown the moment the merge request exists, and only while it's still the
+    # latest thing that happened - the Pipeline tab reports on the most
+    # recently active PR, so this is exactly the window in which going there
+    # shows the PR just opened rather than someone else's.
+    if _latest_build_result(messages) is not None:
+        if st.button("View it in the Pipeline →", key="rc_view_in_pipeline", type="primary"):
+            st.session_state["rc_jump_to_pipeline"] = True
+            st.session_state["rc_jump_nonce"] = st.session_state.get("rc_jump_nonce", 0) + 1
+            st.rerun()
+
     prompt = st.chat_input(_REQUIREMENT_INPUT_PLACEHOLDER)
     # A demo button click lands here (same run) and injects its text into the
     # chat_input above; the user then sends it exactly like a typed message.
     _prefill_chat_input_if_requested()
+    _jump_to_pipeline_tab_if_requested()
     if prompt:
         # Whether typed or demo-prefilled, the requirement now goes out through
         # this one path - clear the demo flag so it can't re-inject afterwards.
         st.session_state.pop("rc_demo_inject", None)
+        # Same for the pipeline jump: a new requirement means the build result
+        # it belonged to is no longer the latest thing said, so the flag has
+        # served its purpose and must not survive into an unrelated run.
+        st.session_state.pop("rc_jump_to_pipeline", None)
         _submit_requirement(prompt)
 
 

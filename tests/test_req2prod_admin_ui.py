@@ -11,6 +11,8 @@ lessons text twice. Skills isn't wired in yet, so that's still a
 "coming soon" placeholder.
 """
 
+from pathlib import Path
+
 from streamlit.testing.v1 import AppTest
 
 import req2prod.admin_ui as m
@@ -92,3 +94,89 @@ class TestTechnologyExcellenceCrewDeepDive:
 
         caption_text = "\n".join(c.value for c in at.caption)
         assert "Skills: coming soon" in caption_text
+
+
+class TestJumpToPipelineButton:
+    """The button's whole mechanism is matching a tab by its visible text, so
+    the label it clicks and the label the tab renders have to be the same
+    string - two literals that merely agree today is exactly how the
+    subscription tool bridge broke (see req2prod/backend.py's
+    TOOL_CLI_COMMAND)."""
+
+    def test_pipeline_label_is_one_of_the_rendered_tab_labels(self):
+        assert m.PIPELINE_TAB_LABEL in m.REQ2PROD_TAB_LABELS
+
+    def test_streamlit_app_renders_exactly_these_labels(self):
+        """streamlit_app.py must not reintroduce its own literal list."""
+        source = (Path(__file__).parent.parent / "streamlit_app.py").read_text()
+
+        assert "list(REQ2PROD_TAB_LABELS)" in source
+        assert '"Request a New Feature", "Pipeline", "Documentation"' not in source
+
+    def test_the_injected_script_carries_the_real_label(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            m.st.components.v1, "html", lambda html, **kw: captured.update(html=html)
+        )
+        monkeypatch.setattr(
+            m.st, "session_state", {"rc_jump_to_pipeline": True, "rc_jump_nonce": 3}
+        )
+
+        m._jump_to_pipeline_tab_if_requested()
+
+        assert f'"{m.PIPELINE_TAB_LABEL}"' in captured["html"]
+        assert 'button[role="tab"]' in captured["html"]
+        assert "const nonce = 3;" in captured["html"]
+
+    def test_does_nothing_unless_the_button_was_clicked(self, monkeypatch):
+        """This runs on every rerun of a tab whose reruns are live crew calls -
+        it must be inert unless a click actually set the flag."""
+        called = []
+        monkeypatch.setattr(
+            m.st.components.v1, "html", lambda html, **kw: called.append(html)
+        )
+        monkeypatch.setattr(m.st, "session_state", {})
+
+        m._jump_to_pipeline_tab_if_requested()
+
+        assert called == []
+
+    def test_flag_survives_the_run_that_injects_the_script(self, monkeypatch):
+        """Popping it here would tear the iframe down before its async script
+        ran - the exact bug _prefill_chat_input_if_requested documents. The
+        browser-side nonce is what makes it fire once, not a server-side pop."""
+        state = {"rc_jump_to_pipeline": True, "rc_jump_nonce": 1}
+        monkeypatch.setattr(m.st.components.v1, "html", lambda html, **kw: None)
+        monkeypatch.setattr(m.st, "session_state", state)
+
+        m._jump_to_pipeline_tab_if_requested()
+
+        assert state["rc_jump_to_pipeline"] is True
+
+
+class TestLatestBuildResult:
+    def test_returns_the_result_when_the_build_is_the_latest_thing(self):
+        messages = [
+            {"role": "user", "content": "add a thing"},
+            {"role": "software_engineer", "content": "done", "data": {"pr_url": "u"}},
+        ]
+
+        assert m._latest_build_result(messages) == {"pr_url": "u"}
+
+    def test_none_when_something_was_said_after_the_build(self):
+        messages = [
+            {"role": "software_engineer", "content": "done", "data": {"pr_url": "u"}},
+            {"role": "user", "content": "and another thing"},
+        ]
+
+        assert m._latest_build_result(messages) is None
+
+    def test_none_for_a_failed_build_which_carries_no_data(self):
+        """A failure appends a plain warning with no data - there's no PR to
+        go and look at, so no button."""
+        messages = [{"role": "software_engineer", "content": "⚠️ The build failed"}]
+
+        assert m._latest_build_result(messages) is None
+
+    def test_none_on_an_empty_conversation(self):
+        assert m._latest_build_result([]) is None
