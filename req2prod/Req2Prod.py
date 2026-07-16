@@ -39,7 +39,7 @@ import yaml
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai_tools import FileReadTool, FileWriterTool
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from req2prod.backend import (
     TOOL_CLI_ALLOWED_TOOLS,
@@ -214,6 +214,27 @@ class FeatureBuildResult(BaseModel):
     summary: str
     pr_url: str = ""
     questions_asked: list[str] = []
+
+
+class EngineerQuestion(BaseModel):
+    """What software_engineer said when it had something to say rather than
+    something to build.
+
+    Not a failure, which is the whole point of it existing. The engineer is
+    told to answer with a FeatureBuildResult, so anything else - typically a
+    clarifying question - parses as nothing and used to become None, which
+    build_feature()'s caller could only render as "Something went wrong and
+    no build result was produced". The sentence that explained the outcome
+    was the one thing thrown away.
+
+    Observed 2026-07-16: the demo logo was requested a second time when it
+    was already on the page, and the engineer asked "was this task given to
+    me in error (because the feature already exists)?" - correct, useful, and
+    invisible. It cost an SSH into production to read a line that was sitting
+    in the reply all along.
+    """
+
+    question: str
 
 
 # --- Demo inputs ----------------------------------------------------------
@@ -1206,7 +1227,31 @@ def _format_architecture_for_engineer(result: ArchitectureDirectionResult) -> st
     return "\n".join(lines)
 
 
-def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResult | None:
+def _engineer_prose_from(exc: ValidationError) -> str:
+    """The engineer's actual answer, recovered from pydantic's complaint
+    about it. .errors() carries the offending input verbatim, so this reads
+    it structurally rather than scraping str(exc) - the input is a dict when
+    CrewAI got far enough to parse something JSON-ish, a plain string when it
+    didn't. Falls back to the raw error, which is still more use than
+    "something went wrong"."""
+    for err in exc.errors():
+        raw = err.get("input")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        if isinstance(raw, dict):
+            longest = max(
+                (v.strip() for v in raw.values() if isinstance(v, str) and v.strip()),
+                key=len,
+                default="",
+            )
+            if longest:
+                return longest
+    return str(exc)
+
+
+def _build_feature_via_subscription(
+    inputs: dict[str, str],
+) -> FeatureBuildResult | EngineerQuestion | None:
     """Subscription-mode equivalent of feature_build_crew.kickoff(). Runs
     software_engineer as a single claude -p call, scoped to a real
     isolated build_workspace() clone exactly like the API path - and,
@@ -1224,11 +1269,12 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
     since both are already fully resolved, already-approved inputs by the
     time build_feature() is ever called, not something the engineer
     should need to renegotiate."""
+    unparsed: list[str] = []
     try:
         with build_workspace() as workspace_path:
             engineer_cfg = agents_config["software_engineer"]
             task_cfg = tasks_config["feature_build_task"]
-            return run_via_subscription(
+            result = run_via_subscription(
                 role=engineer_cfg["role"],
                 goal=engineer_cfg["goal"],
                 backstory=engineer_cfg["backstory"],
@@ -1247,6 +1293,7 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
                     ],
                     workspace_dir=str(workspace_path),
                 ),
+                on_unparsed=unparsed.append,
             )
     except Exception:
         # Same defensive catch as build_feature() itself - a failed
@@ -1254,13 +1301,18 @@ def _build_feature_via_subscription(inputs: dict[str, str]) -> FeatureBuildResul
         # raises RuntimeError, and must not escape this function
         # uncaught any more than it does on the API path.
         return None
+    if result is None and unparsed:
+        # The engineer answered, just not with JSON. Same meaning as the API
+        # path's ValidationError branch - something to say, not a failure.
+        return EngineerQuestion(question=unparsed[0])
+    return result
 
 
 def build_feature(
     pm_result: FeatureRequirementsResult,
     architect_result: ArchitectureDirectionResult,
     original_request: str = "",
-) -> FeatureBuildResult | None:
+) -> FeatureBuildResult | EngineerQuestion | None:
     """Run software_engineer against requirements/direction that a
     Requirements Challenge conversation (challenge_requirement()) has
     already produced and marked ready_for_development, and return the
@@ -1299,6 +1351,8 @@ def build_feature(
     }
     if os.environ.get("AGENT_BACKEND", "api") == "subscription":
         build_result = _build_feature_via_subscription(inputs)
+        if isinstance(build_result, EngineerQuestion):
+            return build_result
         if build_result is None or not _PR_URL_PATTERN.match(build_result.pr_url):
             return None
         return build_result
@@ -1310,21 +1364,27 @@ def build_feature(
         # tools/build_workspace.py's module docstring).
         with build_workspace():
             result = feature_build_crew.kickoff(inputs=inputs)
-    except Exception:
+    except ValidationError as exc:
         # A final answer that mixes prose with a JSON block (e.g. the
         # engineer explaining a clarifying question instead of cleanly
-        # returning FeatureBuildResult JSON) can make CrewAI's own
+        # returning FeatureBuildResult JSON) makes CrewAI's own
         # partial-JSON handling raise a bare pydantic ValidationError
         # instead of falling back gracefully (crewai/utilities/
-        # converter.py's handle_partial_json re-raises on a
-        # validation failure rather than trying the LLM-based
-        # converter it falls back to for other failure modes) - that
-        # exception must not escape this function uncaught, or the
-        # caller never gets to show the user anything at all instead
-        # of a clean "something went wrong" message. A failed
-        # build_workspace() clone (e.g. GITHUB_PR_PUSH_TOKEN missing)
-        # raises RuntimeError, which is also caught here for the same
-        # reason.
+        # converter.py's handle_partial_json re-raises on a validation
+        # failure rather than trying the LLM-based converter it falls
+        # back to for other failure modes).
+        #
+        # That answer isn't a malfunction and isn't lost - pydantic hands
+        # the offending input back in .errors() - so it's returned as what
+        # it is rather than flattened into None. This catch is narrow on
+        # purpose: only a validation failure means "the engineer said
+        # something unexpected". Anything else below is a real failure.
+        return EngineerQuestion(question=_engineer_prose_from(exc))
+    except Exception:
+        # A failed build_workspace() clone (e.g. GITHUB_PR_PUSH_TOKEN
+        # missing) raises RuntimeError, and must not escape this function
+        # uncaught or the caller never gets to show the user anything at
+        # all instead of a clean "something went wrong" message.
         return None
     build_result = result.pydantic
     if build_result is None or not _PR_URL_PATTERN.match(build_result.pr_url):

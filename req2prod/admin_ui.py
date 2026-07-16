@@ -30,6 +30,7 @@ import yaml
 
 from req2prod.Req2Prod import (
     ArchitectureDirectionResult,
+    EngineerQuestion,
     FeatureRequirementsResult,
     build_feature,
     challenge_requirement,
@@ -672,12 +673,29 @@ def render_requirements_tab() -> None:
                         architect_result,
                         _original_request_text(messages),
                     )
-                    print(f"[DIAG] build_feature returned, got_result={build_result is not None}", flush=True)
+                    print(
+                        "[DIAG] build_feature returned, "
+                        f"got_result={build_result is not None} "
+                        f"kind={type(build_result).__name__}",
+                        flush=True,
+                    )
                 except Exception as e:
                     error = f"The build failed: {e}"
                     print(f"[DIAG] build_feature raised: {type(e).__name__}", flush=True)
 
-                if error is not None or build_result is None:
+                if isinstance(build_result, EngineerQuestion):
+                    # The engineer had something to say rather than something
+                    # to build - show what it said. This used to arrive as
+                    # None and render as "Something went wrong", which is how
+                    # "the feature you asked for already exists" came out
+                    # looking like a malfunction (2026-07-16).
+                    messages.append(
+                        {
+                            "role": "software_engineer",
+                            "content": f"💬 **The engineer has a question rather than a build:**\n\n{build_result.question}",
+                        }
+                    )
+                elif error is not None or build_result is None:
                     messages.append(
                         {
                             "role": "software_engineer",
