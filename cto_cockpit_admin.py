@@ -75,6 +75,11 @@ PRODUCT_PATHS: dict[str, str] = {
     "req2prod_agent_steps.py": "Req2Prod",
     "req2prod_deploy_mode.py": "Req2Prod",
     "req2prod_pr_flow.py": "Req2Prod",
+    # req2prod.nl's own two pages, published straight from here - the deploy
+    # syncs this whole directory to /var/www, and req2prod/admin_ui.py's
+    # Documentation tab embeds the same files. Product code, not docs about
+    # the product: it's the artifact users actually land on.
+    "site": "Req2Prod",
     "cto_cockpit_admin.py": "CTO Cockpit",
     "cto_cockpit_connectivity.py": "CTO Cockpit",
 }
@@ -103,6 +108,19 @@ EXCLUDED_NOISE: set[str] = {
     "LICENSE",
     "run_job_finder.command",
     ".claude",
+    # Written design docs (currently superpowers plans/specs, all Req2Prod's
+    # so far). Excluded on the same reading as README.md above: this diagram
+    # maps where each product's code lives, and prose about the code isn't
+    # part of that picture. Filing it under Req2Prod would inflate that
+    # product's path count with something nothing imports. A judgment call,
+    # and revisit it if docs/ ever stops being prose.
+    "docs",
+    # Gitignored local-only output, exactly like data/ and users/ above:
+    # history/ is saved research results, resume/ is Marco's own CV files.
+    # Neither is in the repo, so CI never sees them at all - they only ever
+    # showed up as unclassified on a real working copy.
+    "history",
+    "resume",
 }
 
 PRODUCT_COLORS: dict[str, str] = {
