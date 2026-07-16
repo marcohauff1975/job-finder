@@ -210,7 +210,15 @@ class TestBuildFeature:
             ),
         )
 
-        assert Req2Prod.build_feature(pm, architect) is None
+        out = Req2Prod.build_feature(pm, architect)
+
+        # Never a FeatureBuildResult - the point of the guard, and unchanged:
+        # a PR URL for someone else's repo must not read as a real build.
+        # It now comes back as the engineer's own account of what happened
+        # rather than a bare None, so the caller can say more than "something
+        # went wrong" - but it is still emphatically not a success.
+        assert not isinstance(out, Req2Prod.FeatureBuildResult)
+        assert isinstance(out, Req2Prod.EngineerQuestion)
 
     def test_returns_none_when_workspace_setup_fails(self, monkeypatch):
         pm, architect = self._ready_inputs()

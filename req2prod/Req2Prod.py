@@ -1312,6 +1312,38 @@ def _build_feature_via_subscription(
     return result
 
 
+def _no_real_pr(build_result: FeatureBuildResult) -> EngineerQuestion:
+    """The engineer finished but came back without a usable PR URL.
+
+    An empty, malformed, or fabricated pr_url (the wrong org/repo, or a
+    literal unfilled "[PR_NUMBER]" - both observed live) means
+    create_feature_branch_and_open_pr never returned a real PR, whether the
+    engineer wrote a plan without calling the tool or the tool itself failed.
+    That must never render as "build complete" pointing at a PR that doesn't
+    exist, which is why _PR_URL_PATTERN rejects it.
+
+    But it isn't nothing, either. The engineer's own summary says what
+    happened - observed 2026-07-16: "Unable to complete due to pre-existing
+    branch conflicts when attempting to create the feature branch and open
+    PR", which was exactly right (a merged demo branch of the same name was
+    still on the remote) and was thrown away, leaving "Something went wrong
+    and no build result was produced" and an SSH into production to read it.
+
+    Same shape as EngineerQuestion's own case, other arm: there the reply
+    wasn't valid JSON, here it was valid JSON with no PR in it. Both are the
+    engineer saying something worth showing.
+    """
+    said = (build_result.summary or "").strip()
+    detail = f"\n\n{said}" if said else ""
+    return EngineerQuestion(
+        question=(
+            "I finished the work but couldn't open a pull request, so there's "
+            "nothing to review yet."
+            f"{detail}"
+        )
+    )
+
+
 def build_feature(
     pm_result: FeatureRequirementsResult,
     architect_result: ArchitectureDirectionResult,
@@ -1357,8 +1389,10 @@ def build_feature(
         build_result = _build_feature_via_subscription(inputs)
         if isinstance(build_result, EngineerQuestion):
             return build_result
-        if build_result is None or not _PR_URL_PATTERN.match(build_result.pr_url):
+        if build_result is None:
             return None
+        if not _PR_URL_PATTERN.match(build_result.pr_url):
+            return _no_real_pr(build_result)
         return build_result
     try:
         # build_workspace() clones a fresh, throwaway copy of the repo
@@ -1391,17 +1425,13 @@ def build_feature(
         # all instead of a clean "something went wrong" message.
         return None
     build_result = result.pydantic
-    if build_result is None or not _PR_URL_PATTERN.match(build_result.pr_url):
-        # A FeatureBuildResult with an empty, malformed, or fabricated
-        # pr_url (e.g. the wrong org/repo, or a literal unfilled
-        # "[PR_NUMBER]" placeholder - observed live on production) means
-        # the engineer never got a real PR back from
-        # create_feature_branch_and_open_pr, whether it wrote a plan
-        # without calling the tool or the tool itself failed. Treating
-        # that the same as a missing result (None) is what makes the
-        # caller show "something went wrong" instead of a false "build
-        # complete" message pointing at a PR that doesn't exist.
+    if build_result is None:
         return None
+    if not _PR_URL_PATTERN.match(build_result.pr_url):
+        # Still never a false "build complete" pointing at a PR that doesn't
+        # exist - but the engineer's own account of why comes back with it
+        # rather than being dropped. See _no_real_pr.
+        return _no_real_pr(build_result)
     return build_result
 
 

@@ -42,6 +42,38 @@ from req2prod.tools.build_workspace import _GITHUB_REPO, git_askpass_env, run_in
 _PROTECTED_BRANCHES = {"main", "master"}
 
 
+def _remote_branch_exists(branch_name: str, push_token: str) -> bool:
+    """Is this name already taken on the remote? Uses ls-remote rather than
+    trying and catching the push: a failed push has already made the commit,
+    and unwinding that is more moving parts than asking first."""
+    push_url = f"https://x-access-token@github.com/{_GITHUB_REPO}.git"
+    with git_askpass_env(push_token) as env:
+        code, out, _ = run_in_workspace(
+            ["git", "ls-remote", "--heads", push_url, f"refs/heads/{branch_name}"],
+            timeout=30,
+            env=env,
+        )
+    return code == 0 and bool(out.strip())
+
+
+def _unused_branch_name(branch_name: str, push_token: str) -> str:
+    """branch_name, or the first free variant of it.
+
+    Counts up rather than using a timestamp or hash so the name stays
+    readable and a second run is obviously the second run:
+    feature/remove-req2prod-demo-logo -> ...-2 -> ...-3. Gives up after a few
+    and returns the original: better to fail the push with a message that
+    names the real branch than to loop.
+    """
+    if not _remote_branch_exists(branch_name, push_token):
+        return branch_name
+    for n in range(2, 12):
+        candidate = f"{branch_name}-{n}"
+        if not _remote_branch_exists(candidate, push_token):
+            return candidate
+    return branch_name
+
+
 class CreateFeatureBranchAndOpenPRTool(BaseTool):
     name: str = "create_feature_branch_and_open_pr"
     description: str = (
@@ -89,6 +121,20 @@ class CreateFeatureBranchAndOpenPRTool(BaseTool):
             workspace_dir()  # raises if called outside build_workspace()
         except RuntimeError as e:
             return f"Error: {e}"
+
+        # A branch of this name may already exist on the remote from an
+        # earlier run - the demo requests are meant to be run repeatedly and
+        # always ask for the same branch, so this is a certainty, not an edge
+        # case. The workspace is a fresh clone of main, so its branch and the
+        # old one have diverged: the push is rejected as a non-fast-forward,
+        # the PR never opens, and pr_url comes back empty (observed
+        # 2026-07-16 with feature/remove-req2prod-demo-logo, still on the
+        # remote from a merged demo two hours earlier).
+        #
+        # Suffix rather than force-push: the existing branch may be someone's
+        # open PR, and overwriting it to save a name is not a trade worth
+        # making. Suffix rather than delete-then-create for the same reason.
+        branch_name = _unused_branch_name(branch_name, push_token)
 
         # No fetch/checkout-from-origin needed here: build_workspace()
         # already cloned a fresh copy of main for this build, so the
