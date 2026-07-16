@@ -25,6 +25,10 @@ import streamlit as st
 GITHUB_REPO = "marcohauff1975/job-finder"
 PIPELINE_WORKFLOW_FILE = "req2prod-pipeline.yml"
 DEVOPS_AGENT_WORKFLOW_FILE = "devops-agent.yml"
+# The job inside PIPELINE_WORKFLOW_FILE whose steps this view reports on. It
+# shares a run with resolve_backend and code_review, so it has to be found by
+# name - see _deploy_stages.
+DEPLOY_JOB_NAME = "deploy"
 
 # Both identify a persona's activity from real GitHub data, since
 # pr_fix_agent and pr_arbiter don't have their own GitHub identity -
@@ -120,8 +124,26 @@ def _deploy_stages(pr: dict, token: str) -> list[dict]:
     if not ok2:
         return []
     jobs = (jobs_data or {}).get("jobs", [])
-    steps = jobs[0].get("steps", []) if jobs else []
+    # By name, not jobs[0]: this run has three jobs and the API returns
+    # resolve_backend first (then deploy, then a skipped code_review). Reading
+    # jobs[0] meant every step lookup below searched resolve_backend's three
+    # steps, none of which is "Pull latest main on the server" - so pull_step
+    # was always None and every completed deploy rendered amber "Deploy step
+    # didn't complete.", regardless of what the deploy actually did. It was
+    # never reading the deploy at all.
+    deploy_job = next((j for j in jobs if j.get("name") == DEPLOY_JOB_NAME), None)
     run_completed = deploy_run.get("status") == "completed"
+    if deploy_job is not None and deploy_job.get("conclusion") == "skipped":
+        # AUTO_DEPLOY_ON_MERGE is off, so merging deliberately doesn't deploy.
+        # That's the configured behaviour, not a failure - show no deploy
+        # stages at all rather than inventing one that then reads as broken.
+        return []
+    if deploy_job is None and run_completed:
+        return []
+    # deploy `needs: resolve_backend`, so on a run that's only just started the
+    # deploy job may not exist yet. No steps means the lookups below fall
+    # through to "Deploying now…", which is exactly right at that point.
+    steps = deploy_job.get("steps", []) if deploy_job else []
     run_url = deploy_run.get("html_url", pr["html_url"])
 
     stages: list[dict] = []

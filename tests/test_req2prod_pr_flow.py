@@ -220,3 +220,135 @@ class TestArbiterDetection:
         svg = flow.render_pr_flow_svg(stages)
 
         assert "if not ok - rework" not in svg
+
+
+def _merged_pr(number: int = 7) -> dict:
+    pr = _pr(number)
+    pr.update(state="closed", merged_at="2026-07-10T09:30:00Z", merge_commit_sha="mergesha")
+    return pr
+
+
+def _job(name: str, steps: list[dict], conclusion: str = "success") -> dict:
+    return {"name": name, "status": "completed", "conclusion": conclusion, "steps": steps}
+
+
+def _deploy_steps(*, restart: str = "success") -> list[dict]:
+    """The real deploy job's step names, in order - only the ones
+    _deploy_stages actually looks for."""
+    return [
+        {"name": "Set up job", "conclusion": "success"},
+        {"name": "Pull latest main on the server", "conclusion": "success"},
+        {"name": "Decide whether a restart is actually needed", "conclusion": "success"},
+        {"name": "Restart jobfinder.service", "conclusion": restart},
+        {"name": "Run prod_tester (and rollback_agent if needed)", "conclusion": "success"},
+    ]
+
+
+# resolve_backend's real steps: three, and none of them is a deploy step.
+_RESOLVE_BACKEND_STEPS = [
+    {"name": "Set up job", "conclusion": "success"},
+    {"name": "Run if [ \"$REQUESTED_BACKEND\" = \"subscription\" ]", "conclusion": "success"},
+    {"name": "Complete job", "conclusion": "success"},
+]
+
+
+def _mock_deploy_run(jobs: list[dict], monkeypatch, *, run_status: str = "completed") -> None:
+    """Mocks a merged PR whose merge commit triggered one push run of the
+    pipeline, with the given jobs."""
+    pr = _merged_pr()
+    number = pr["number"]
+    run = {
+        "id": 123,
+        "head_sha": "mergesha",
+        "status": run_status,
+        "html_url": "https://github.com/marcohauff1975/job-finder/actions/runs/123",
+    }
+    responses = {
+        "/pulls": [pr],
+        f"/pulls/{number}": pr,
+        f"/pulls/{number}/reviews": [],
+        f"/pulls/{number}/commits": [_commit("headsha", "Add the feature")],
+        f"/actions/workflows/{flow.PIPELINE_WORKFLOW_FILE}/runs": {"workflow_runs": [run]},
+        "/actions/runs/123/jobs": {"jobs": jobs},
+        f"/actions/workflows/{flow.DEVOPS_AGENT_WORKFLOW_FILE}/runs": {"workflow_runs": []},
+    }
+
+    def fake(path, token, params=None):
+        if path not in responses:
+            raise AssertionError(f"Unexpected _gh_get call: {path} (params={params})")
+        return responses[path], True
+
+    monkeypatch.setattr(flow, "_gh_get", fake)
+
+
+class TestDeployStagesReadTheDeployJob:
+    def test_reads_the_deploy_job_not_whichever_job_is_first(self, monkeypatch):
+        """The run has three jobs and the API returns resolve_backend first.
+        Reading jobs[0] searched its three steps for "Pull latest main on the
+        server", never found it, and reported every completed deploy as
+        "Deploy step didn't complete." - amber, regardless of what the deploy
+        actually did."""
+        _mock_deploy_run(
+            [
+                _job("resolve_backend", _RESOLVE_BACKEND_STEPS),
+                _job("deploy", _deploy_steps()),
+                _job("code_review", [], conclusion="skipped"),
+            ],
+            monkeypatch,
+        )
+
+        _pr_info, stages, error = flow.get_latest_pr_flow()
+
+        assert error is None
+        push = next(s for s in stages if s["kind"] == "push_to_prod")
+        assert push["state"] == "ok"
+        assert "restarted jobfinder.service" in push["summary"]
+
+    def test_a_genuinely_failed_restart_is_still_reported(self, monkeypatch):
+        """The counterpart to the above: reading the right job must not mean
+        reading it optimistically."""
+        _mock_deploy_run(
+            [
+                _job("resolve_backend", _RESOLVE_BACKEND_STEPS),
+                _job("deploy", _deploy_steps(restart="failure"), conclusion="failure"),
+            ],
+            monkeypatch,
+        )
+
+        _pr_info, stages, error = flow.get_latest_pr_flow()
+
+        assert error is None
+        push = next(s for s in stages if s["kind"] == "push_to_prod")
+        assert push["state"] == "failed"
+
+    def test_a_skipped_deploy_shows_no_deploy_stages(self, monkeypatch):
+        """AUTO_DEPLOY_ON_MERGE off means merging deliberately doesn't deploy.
+        The job is present but skipped with no steps - that's the configured
+        behaviour, not a deploy that broke."""
+        _mock_deploy_run(
+            [
+                _job("resolve_backend", _RESOLVE_BACKEND_STEPS),
+                _job("deploy", [], conclusion="skipped"),
+            ],
+            monkeypatch,
+        )
+
+        _pr_info, stages, error = flow.get_latest_pr_flow()
+
+        assert error is None
+        assert [s for s in stages if s["kind"] == "push_to_prod"] == []
+
+    def test_deploy_job_not_created_yet_reads_as_running(self, monkeypatch):
+        """deploy `needs: resolve_backend`, so early in a run it doesn't exist
+        yet. That's in-progress, not failed."""
+        _mock_deploy_run(
+            [_job("resolve_backend", _RESOLVE_BACKEND_STEPS)],
+            monkeypatch,
+            run_status="in_progress",
+        )
+
+        _pr_info, stages, error = flow.get_latest_pr_flow()
+
+        assert error is None
+        push = next(s for s in stages if s["kind"] == "push_to_prod")
+        assert push["state"] == "running"
