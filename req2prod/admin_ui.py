@@ -67,6 +67,11 @@ REQ2PROD_TAB_LABELS: tuple[str, str, str] = (
 )
 PIPELINE_TAB_LABEL = REQ2PROD_TAB_LABELS[1]
 
+# How often the PR flow re-reads itself while a PR is moving. Faster than this
+# buys nothing: get_latest_pr_flow is @st.cache_data(ttl=15), so the GitHub API
+# is hit once per 15s regardless and the extra ticks are cached reads.
+_FLOW_POLL_SECONDS = 5
+
 
 # --- Demo prefill requirements -------------------------------------------
 # Ready-made feature requests seeded (not auto-run) by the "Demo" buttons on
@@ -810,6 +815,81 @@ def render_requirements_tab() -> None:
         _submit_requirement(prompt)
 
 
+def _flow_is_in_flight(stages: list[dict]) -> bool:
+    """Is anything still moving? Drives whether the flow polls at all."""
+    return any(stage.get("state") == "running" for stage in stages)
+
+
+def _draw_pr_flow() -> list[dict]:
+    """One render of the PR flow. Returns the stages so the caller can see
+    whether anything is still running."""
+    try:
+        pr_info, stages, flow_error = get_latest_pr_flow()
+    except Exception:
+        pr_info, stages, flow_error = None, [], "error"
+
+    if flow_error == "no_token":
+        st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this tab.")
+    elif flow_error in ("unreachable", "error"):
+        st.warning("Couldn't reach the GitHub API just now - it'll retry automatically.")
+    elif not stages:
+        st.info("No pull requests found yet.")
+    else:
+        st.markdown(f"**#{pr_info['number']}** — {pr_info['title']} ([view PR]({pr_info['url']}))")
+        st.markdown(render_pr_flow_svg(stages), unsafe_allow_html=True)
+    return stages
+
+
+def _render_pr_flow_live() -> None:
+    """The PR flow, refreshing itself while a PR is actually moving.
+
+    Auto-refresh has been removed from this tab twice (see 4c32f0a, "it was
+    still interrupting crew calls"). Every st.tabs() panel's code runs on
+    every script rerun whether or not it's the visible tab, so a plain timer
+    kept firing while a *different* tab was mid-crew-call and made Streamlit
+    cancel that run before it could save its result. Splitting the console into
+    its own process didn't fix that: this tab and Request a New Feature are
+    still one script.
+
+    st.fragment is what changed. A fragment's run_every rerun waits for a
+    running script instead of cancelling it - measured, not assumed: a 12s
+    call logged all 12 seconds and finished, while a 2s fragment went silent
+    for exactly that span and resumed after.
+
+    Two rules keep it that way:
+
+    - The fragment is mounted only when something is in flight, so an idle tab
+      has no timer at all. in_flight is read on full script runs, which is
+      when it can change anyway: pushing a requirement ends in a full rerun,
+      and that's the run where the new PR first appears.
+
+    - Nothing here ever calls a full st.rerun() to stop the timer. That would
+      mean re-decorating the fragment, and a full rerun is precisely the thing
+      that broke this twice. So when a PR finishes, the timer keeps ticking
+      until the next interaction drops it - which is free: get_latest_pr_flow
+      is @st.cache_data(ttl=15), so a 5s tick is a cached read and an SVG
+      re-render, never a GitHub call. The API sees one request per 15s no
+      matter how fast this polls.
+    """
+    # Decide before drawing, or the flow renders twice: once here and once
+    # inside the fragment. This read is free - the same @st.cache_data(ttl=15)
+    # the draw below hits.
+    try:
+        _, stages, _ = get_latest_pr_flow()
+    except Exception:
+        stages = []
+
+    if not _flow_is_in_flight(stages):
+        _draw_pr_flow()
+        return
+
+    @st.fragment(run_every=_FLOW_POLL_SECONDS)
+    def _live() -> None:
+        _draw_pr_flow()
+
+    _live()
+
+
 def render_req2prod_pipeline_tab() -> None:
     """The "Req2Prod Pipeline" admin tab: a live, read-only view of the most
     recently active pull request's real journey through the review
@@ -825,31 +905,12 @@ def render_req2prod_pipeline_tab() -> None:
         "Read-only: nothing here can trigger, cancel, or re-run "
         "anything."
     )
-    # Not auto-polling on a timer: every st.tabs() panel's code runs
-    # on every script rerun regardless of which tab is visually
-    # active (Streamlit doesn't skip hidden tabs), so a timer armed
-    # here would keep ticking client-side even while a different
-    # tab (e.g. Request a New Feature) is mid-crew-call, and firing
-    # it there forces Streamlit to cancel that run before it can
-    # save its result - exactly what happened in production. A
-    # manual button avoids that risk entirely.
+    # Kept even though the flow below now refreshes itself: it's the escape
+    # hatch if the fragment ever misbehaves, and it costs nothing.
     if st.button("🔄 Refresh", key="req2prod_flow_refresh"):
         st.rerun()
 
-    try:
-        pr_info, stages, flow_error = get_latest_pr_flow()
-    except Exception:
-        pr_info, stages, flow_error = None, [], "error"
-
-    if flow_error == "no_token":
-        st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this tab.")
-    elif flow_error in ("unreachable", "error"):
-        st.warning("Couldn't reach the GitHub API just now - it'll retry automatically.")
-    elif not stages:
-        st.info("No pull requests found yet.")
-    else:
-        st.markdown(f"**#{pr_info['number']}** — {pr_info['title']} ([view PR]({pr_info['url']}))")
-        st.markdown(render_pr_flow_svg(stages), unsafe_allow_html=True)
+    _render_pr_flow_live()
 
     st.markdown("#### Live Req2Prod agent activity")
     st.caption(
