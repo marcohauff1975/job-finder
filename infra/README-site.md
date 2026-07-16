@@ -1,21 +1,15 @@
 # req2prod.nl — the product site
 
-> **Not live yet.** Everything below describes the intended end state, not
-> what is reachable today. `req2prod.nl` does not resolve to this box yet:
-> DNS has not been pointed at it, the nginx server block for it does not
-> exist, and no TLS certificate has been issued. The site goes live only once
-> all three of those land as separate operator steps.
+> **Live.** All three operator steps have landed: `req2prod.nl` resolves to this
+> box, the nginx server block exists, and certbot has issued a certificate.
+> <https://req2prod.nl> serves this tree over TLS, and `site/index.html` is
+> safe to edit -- merge to main, deploy, done.
 >
-> **Until then, do not edit `site/index.html`.** The live page at
-> `https://yourmagicaljobfinder.online/req2prod` is still served from the old
-> web root (`/var/www/req2prod/`), which is now a frozen, unmanaged copy --
-> nothing updates it any more. The deploy already syncs `site/` to the new web
-> root (`/var/www/req2prod.nl`), but nginx isn't serving that root yet, so an
-> edit to `site/index.html` only changes the unserved copy while the old,
-> live copy keeps answering requests unchanged -- the published page would go
-> stale silently, with no error to signal it. If the page must be edited
-> before the redirect lands, update `/var/www/req2prod/index.html` on the box
-> by hand too, so the live URL doesn't fall out of sync.
+> This note previously said the opposite, and warned against editing
+> `site/index.html` because the live page was still served from a frozen copy at
+> `/var/www/req2prod/`. That was true when written and stopped being true once
+> the DNS moved. Nothing tells a doc it has gone stale, so: if you change how
+> this is served, change this paragraph in the same commit.
 
 Everything under `site/` is published to <https://req2prod.nl>. The tree is the
 site: the path in this repo is the path on the web.

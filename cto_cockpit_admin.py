@@ -71,6 +71,16 @@ PRODUCT_PATHS: dict[str, str] = {
     "config": "Job Finder",  # Job Finder's own CrewAI config - distinct from req2prod/config/
     "assets": "Job Finder",
     "req2prod": "Req2Prod",
+    # The admin console's own entry point - a second Streamlit process serving
+    # req2prod.nl/app, so restarting the public Job Finder can't take the
+    # console down with it (see docs/superpowers/specs/
+    # 2026-07-16-split-admin-console-from-job-finder-design.md). Filed under
+    # Req2Prod even though the console also hosts the Jobfinder Admin and CTO
+    # Cockpit tabs: this diagram maps where a product's code lives, and the
+    # file is Req2Prod's shell. Which process serves a file is a different
+    # question, deliberately answered elsewhere - the deploy's restart rule
+    # can't reuse this mapping for exactly that reason.
+    "req2prod_app.py": "Req2Prod",
     "req2prod_agent_backend_mode.py": "Req2Prod",
     "req2prod_agent_steps.py": "Req2Prod",
     "req2prod_deploy_mode.py": "Req2Prod",
