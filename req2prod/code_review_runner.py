@@ -259,10 +259,13 @@ def _touches_a_workflow(diff: str) -> bool:
     loop is skipped for these and pr_arbiter decides on the findings as they
     stand. The findings still reach Marco; only the automatic fixing stops.
     """
+    # Check "+++ b/" (new/modified path) and "--- a/" (old path, present even
+    # on a pure deletion where the new side is "+++ /dev/null" with no "b/").
+    prefixes = ("+++ b/", "--- a/")
     return any(
-        line[len("+++ b/"):].startswith(_WORKFLOW_DIR)
+        line.startswith(prefix) and line[len(prefix):].startswith(_WORKFLOW_DIR)
         for line in diff.splitlines()
-        if line.startswith("+++ b/")
+        for prefix in prefixes
     )
 
 
