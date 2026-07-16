@@ -265,7 +265,6 @@ if st.query_params.get("admin") is not None:
                 render_cost_tab()
     st.stop()
 
-</antml;parameter>
 st.markdown(
     """
     <style>
