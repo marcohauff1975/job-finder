@@ -17,6 +17,7 @@ from req2prod import model_registry
 def config_path(monkeypatch, tmp_path):
     path = tmp_path / "agent_models.json"
     monkeypatch.setattr(model_registry, "CONFIG_PATH", path)
+    monkeypatch.setattr(model_registry, "DEFAULT_CONFIG_PATH", tmp_path / "agent_models.default.json")
     return path
 
 
