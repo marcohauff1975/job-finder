@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Req2Prod &mdash; Demo</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --panel:#161622; --panel2:#12121c; --input:#0e0e15;
+    --text:#f1f5f9; --muted:#9096a6; --muted2:#6b7180;
+    --accent:#818cf8; --accent2:#a78bfa; --accentdim:rgba(129,140,248,.14);
+    --amber:#f59e0b; --cyan:#22d3ee; --green:#4ade80;
+    --border:rgba(241,245,249,.10); --border2:rgba(241,245,249,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{background:var(--bg)}
+  body{background:var(--bg);color:var(--text);
+    font-family:"Source Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+    margin:0;padding:0 20px 72px;position:relative;overflow-x:hidden}
+  .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
+  .accent{color:var(--accent)}
+
+  .page{max-width:820px;margin:0 auto;position:relative;z-index:2}
+
+  body::before{content:"";position:absolute;top:-140px;left:50%;transform:translateX(-50%);
+    width:640px;height:340px;z-index:0;
+    background:radial-gradient(closest-side,rgba(129,140,248,.16),transparent 70%);pointer-events:none}
+
+  .head{display:flex;align-items:center;justify-content:space-between;padding-bottom:11px;border-bottom:1px solid var(--border2);position:relative;z-index:2}
+  .brand{display:flex;align-items:center;gap:9px}
+  .brand svg{width:26px;height:26px;flex:0 0 auto}
+  .brand .wm{font-weight:700;font-size:19px;letter-spacing:-1px;display:block;line-height:1}
+
+  .nav{display:flex;gap:8px;margin-top:12px;position:relative;z-index:3}
+  .nav a{font-size:11px;font-weight:600;letter-spacing:.4px;padding:6px 15px;border-radius:100px;
+    color:var(--muted);text-decoration:none;border:1px solid var(--border);background:var(--panel)}
+  .nav a:hover{color:var(--text);border-color:rgba(241,245,249,.24)}
+  .nav a[aria-current="page"]{background:var(--accentdim);border-color:rgba(129,140,248,.45);color:#a9b0ff}
+  .nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  h1{font-size:25px;line-height:1.1;letter-spacing:-.8px;font-weight:800;margin:18px 0 8px;position:relative;z-index:2}
+  .grad{color:#c3c9ff}
+  .hero-tag{font-size:13.5px;font-weight:600;color:#a5adf7;letter-spacing:.2px;margin:0 0 14px;position:relative;z-index:2}
+  .lead{font-size:12px;color:var(--muted);line-height:1.55;max-width:650px;position:relative;z-index:2}
+  .lead b{color:var(--text);font-weight:600}
+
+  .kicker{color:var(--accent);font-size:10px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;margin-bottom:8px}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px}
+  .diagram-wrap{margin-top:22px;position:relative;z-index:2}
+  svg{display:block;width:100%;height:auto}
+
+  /* The use case, stated the way it was actually written on paper. */
+  .usecase{margin-top:18px;padding:13px 16px;border-radius:12px;
+    background:var(--accentdim);border:1px solid rgba(129,140,248,.35);
+    font-size:12.5px;line-height:1.55;color:#c9cffb;position:relative;z-index:2}
+  .usecase b{color:#fff;font-weight:700}
+  .usecase .who{display:block;font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:5px}
+
+  /* The video is the demo. 16:9, fluid, no fixed height - it has to survive a
+     phone as well as a projector. youtube-nocookie so an embed on a page that
+     sets no cookies of its own does not quietly start setting them. */
+  .video{margin-top:14px;position:relative;z-index:2}
+  .video-frame{position:relative;width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;
+    border:1px solid var(--border);background:#000}
+  .video-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+
+  .note{font-size:9px;color:var(--muted2);margin-top:11px;line-height:1.5}
+  .footer{margin-top:26px;padding-top:9px;border-top:1px solid var(--border2);
+    display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:var(--muted2);position:relative;z-index:2}
+  .footer .mono{color:var(--muted)}
+
+  @media (max-width:560px){
+    h1{font-size:21px}
+    .footer{flex-direction:column;gap:4px;align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="head">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#161622"/><path d="M16 20 L34 32 L16 44" stroke="#818cf8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="40" y="22" width="9" height="20" rx="2" fill="#f1f5f9"/></svg>
+      <span class="wm mono">req<span class="accent">2</span>prod</span>
+    </div>
+  </div>
+
+  <nav class="nav" aria-label="Site">
+    <a href="/">Home</a>
+    <a href="/details.html">More Details</a>
+    <a href="/demo.html" aria-current="page">Demo</a>
+  </nav>
+
+  <h1>One requirement, start to finish.<br><span class="grad">Watch it ship.</span></h1>
+  <div class="hero-tag">A real change, built and deployed by the agents, unedited</div>
+
+  <div class="usecase">
+    <span class="who">The use case</span>
+    A <b>Product Manager</b> would like to add the <b>req2prod</b> logo to the
+    <b>Job Finder</b> homepage. That request is typed in as plain English &mdash; nothing
+    else is written by hand. Req2Prod takes it from there: the Product Manager and
+    Architect agents challenge it, the Engineer writes the code, an automated review
+    loop checks it, and the change is deployed to the live site.
+  </div>
+
+  <div class="diagram-wrap">
+    <div class="kicker">What the agents are asked to do</div>
+
+    <!-- The "before" state, deliberately: the homepage is drawn WITHOUT the logo,
+         because putting it there is the entire job the demo hands to Req2Prod. The
+         dashed target marks where it lands, so the diagram states the request
+         rather than the result. -->
+    <svg viewBox="0 62 1000 332" xmlns="http://www.w3.org/2000/svg" role="img"
+         aria-label="The req2prod logo on the left, an arrow pointing to the empty top-right corner of the Job Finder homepage on the right, where the logo will be added.">
+      <defs>
+        <linearGradient id="r2p-c1" x1="8" y1="26" x2="30" y2="64" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#818cf8"/><stop offset="1" stop-color="#a78bfa"/>
+        </linearGradient>
+        <marker id="arw" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto">
+          <path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"/>
+        </marker>
+        <linearGradient id="btn" x1="0" y1="0" x2="1" y2="0">
+          <stop stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/>
+        </linearGradient>
+      </defs>
+
+      <!-- ---------- left: the asset ---------- -->
+      <rect x="24" y="126" width="292" height="130" rx="14" fill="#161622" stroke="rgba(241,245,249,.10)"/>
+      <text x="44" y="154" font-family="'Source Sans',sans-serif" font-size="11" font-weight="700"
+            letter-spacing="1.6" fill="#818cf8">THE LOGO</text>
+      <!-- the exact req2prod lockup the demo asks for, scaled into place -->
+      <g transform="translate(46,170) scale(0.82)">
+        <path d="M10 28 L28 45 L10 62" stroke="url(#r2p-c1)" stroke-width="6" fill="none"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="44" y="59" font-family="ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace"
+              font-size="42" font-weight="700" letter-spacing="-2" fill="#f1f5f9">req<tspan fill="#818cf8">2</tspan>prod</text>
+        <rect x="258" y="30" width="15" height="30" rx="2.5" fill="#818cf8">
+          <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;.5;.5;1;1" dur="1.1s" repeatCount="indefinite"/>
+        </rect>
+      </g>
+
+      <!-- ---------- the ask ---------- -->
+      <path d="M326 168 C 430 96, 520 84, 664 104" stroke="#818cf8" stroke-width="2.5" fill="none"
+            stroke-dasharray="7 5" marker-end="url(#arw)"/>
+      <text x="404" y="82" font-family="'Source Sans',sans-serif" font-size="13" font-weight="700"
+            fill="#a9b0ff">add it to the top-right corner</text>
+
+      <!-- ---------- right: the Job Finder homepage, before ---------- -->
+      <rect x="556" y="96" width="420" height="286" rx="12" fill="#12121c" stroke="rgba(241,245,249,.14)"/>
+      <!-- browser chrome -->
+      <path d="M556 108 a12 12 0 0 1 12 -12 h396 a12 12 0 0 1 12 12 v18 h-420 z" fill="#161622"/>
+      <circle cx="576" cy="112" r="3.5" fill="#3f3f52"/>
+      <circle cx="588" cy="112" r="3.5" fill="#3f3f52"/>
+      <circle cx="600" cy="112" r="3.5" fill="#3f3f52"/>
+      <text x="614" y="116" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6b7180">yourmagicaljobfinder.online</text>
+
+      <!-- where the logo will land: empty on purpose -->
+      <rect x="880" y="134" width="76" height="24" rx="5" fill="none" stroke="#818cf8"
+            stroke-width="1.5" stroke-dasharray="4 4" opacity=".85"/>
+      <text x="918" y="150" font-family="ui-monospace,Menlo,monospace" font-size="7.5"
+            fill="#818cf8" text-anchor="middle" opacity=".9">logo goes here</text>
+
+      <!-- hero -->
+      <rect x="586" y="150" width="104" height="17" rx="8.5" fill="rgba(139,92,246,.15)" stroke="rgba(139,92,246,.4)"/>
+      <text x="596" y="162" font-family="'Source Sans',sans-serif" font-size="8" font-weight="600" fill="#c4b5fd">✨ Powered by AI agents</text>
+      <text x="586" y="196" font-family="'Source Sans',sans-serif" font-size="25" font-weight="800"
+            letter-spacing="-.6" fill="#a78bfa">Job Finder</text>
+      <text x="586" y="213" font-family="'Source Sans',sans-serif" font-size="8.5" fill="#94a3b8">AI-powered job search, company research, and resume tailoring.</text>
+
+      <!-- resume row -->
+      <rect x="586" y="228" width="360" height="22" rx="6" fill="none" stroke="rgba(241,245,249,.12)"/>
+      <text x="598" y="242" font-family="'Source Sans',sans-serif" font-size="8" fill="#9096a6">Resume on file: resume.docx</text>
+
+      <!-- buttons -->
+      <rect x="586" y="260" width="174" height="21" rx="6" fill="url(#btn)" opacity=".92"/>
+      <text x="673" y="274" font-family="'Source Sans',sans-serif" font-size="8" font-weight="600" fill="#fff" text-anchor="middle">Review my resume</text>
+      <rect x="772" y="260" width="174" height="21" rx="6" fill="url(#btn)" opacity=".92"/>
+      <text x="859" y="274" font-family="'Source Sans',sans-serif" font-size="8" font-weight="600" fill="#fff" text-anchor="middle">Change resume format</text>
+
+      <!-- search -->
+      <text x="586" y="302" font-family="'Source Sans',sans-serif" font-size="12" font-weight="800" fill="#f1f5f9">Search for jobs</text>
+      <rect x="586" y="312" width="360" height="18" rx="5" fill="#0e0e15" stroke="rgba(241,245,249,.10)"/>
+      <text x="596" y="324" font-family="'Source Sans',sans-serif" font-size="7.5" fill="#6b7180">Role</text>
+      <rect x="586" y="338" width="360" height="18" rx="5" fill="#0e0e15" stroke="rgba(241,245,249,.10)"/>
+      <text x="596" y="350" font-family="'Source Sans',sans-serif" font-size="7.5" fill="#6b7180">Location</text>
+
+      <text x="766" y="374" font-family="'Source Sans',sans-serif" font-size="8.5" font-style="italic"
+            fill="#6b7180" text-anchor="middle">the homepage today &mdash; no logo yet</text>
+    </svg>
+  </div>
+
+  <div class="video">
+    <div class="kicker">The run, end to end</div>
+    <div class="video-frame">
+      <iframe src="https://www.youtube-nocookie.com/embed/AaN_XI30qwE"
+              title="Req2Prod demo: adding the req2prod logo to the Job Finder homepage"
+              loading="lazy"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen></iframe>
+    </div>
+    <p class="note">The requirement is typed in plain English. Everything after that &mdash; the user story, the
+      architecture call, the code, the pull request, the review loop and the deploy to the live site &mdash; is the
+      agents. <a href="/details.html" style="color:var(--accent)">See how it works &rarr;</a></p>
+  </div>
+
+  <div class="footer">
+    <span>Contact · Marco Hauff · marco.hauff@gmail.com · req2prod.nl</span>
+    <span class="mono">© 2026 Req2Prod</span>
+  </div>
+</div>
+
+</body>
+</html>
