@@ -39,6 +39,7 @@ from req2prod.model_registry import (
     AGENT_DISPLAY_NAMES,
     MODEL_DISPLAY_NAMES,
     RECOMMENDATIONS,
+    APP_ONLY_AGENT_KEYS,
     TECH_EXCELLENCE_AGENT_KEYS,
     load_agent_models,
     set_agent_model,
@@ -1132,9 +1133,14 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         sub_recommended_id, sub_rationale = RECOMMENDATIONS[agent_key]["subscription"]
         api_label = MODEL_DISPLAY_NAMES[current_models[agent_key]["api"]]
         sub_label = MODEL_DISPLAY_NAMES[current_models[agent_key]["subscription"]]
+        app_only = agent_key in APP_ONLY_AGENT_KEYS
         rows.append(
             {
-                "Agent": AGENT_DISPLAY_NAMES[agent_key],
+                # The dagger marks an agent whose Subscription column can't
+                # take effect in production - explained in the caption below
+                # the table. Without it the column reads as a live choice for
+                # every row, and for these it silently isn't.
+                "Agent": f"{AGENT_DISPLAY_NAMES[agent_key]} †" if app_only else AGENT_DISPLAY_NAMES[agent_key],
                 "API model": api_label,
                 "Recommended (API)": MODEL_DISPLAY_NAMES[api_recommended_id],
                 "Subscription model": sub_label,
@@ -1167,6 +1173,21 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         row_height=260,
         key=f"{widget_key_prefix}_editor",
     )
+
+    # Only when this group actually contains one, so the other table doesn't
+    # carry a footnote explaining a symbol it never shows.
+    if any(key in APP_ONLY_AGENT_KEYS for key in agent_keys):
+        st.caption(
+            "† Runs only inside this Streamlit app, which in production is the "
+            "Lightsail box - and that box has no Claude subscription login. "
+            "The subscription backend is not a remote call: it shells out to "
+            "`claude -p` on whatever machine the code is running on. So for "
+            "these agents the **Subscription model** above never applies in "
+            "production, and the API model is what actually runs. It does take "
+            "effect if you run this app locally on a Mac that is logged in. "
+            "Every other agent here is called from GitHub Actions, where the "
+            "subscription column is real."
+        )
 
     if st.button("Save model changes", key=f"{widget_key_prefix}_save"):
         changed = 0

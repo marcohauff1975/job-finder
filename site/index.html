@@ -373,22 +373,22 @@
     <!-- Model per agent -->
     <div class="panel modelcard">
       <h3><span class="accent">⚙</span> One model per agent — set in a registry</h3>
-      <div class="sub">Each agent's model is set independently in a model registry (<span class="mono">config/agent_models.json</span>), with separate API and self-hosted "subscription" tiers. Changing a model is a one-line change.</div>
+      <div class="sub">Each agent's model is set independently in a model registry (<span class="mono">req2prod/config/agent_models.json</span>), with separate API and self-hosted "subscription" tiers. Changing a model is a one-line change.</div>
       <table>
         <thead><tr><th>Agent</th><th style="text-align:right">Model (API tier)</th></tr></thead>
         <tbody>
-          <tr><td class="agc">Product Manager<small>scopes intent, flags ambiguity</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
-          <tr><td class="agc">Software Architect<small>plans &amp; designs the change</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
-          <tr><td class="agc">Software Engineer<small>writes the code, opens the PR</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">Product Manager<small>scopes intent, flags ambiguity</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
+          <tr><td class="agc">Software Architect<small>plans &amp; designs the change</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
+          <tr><td class="agc">Software Engineer<small>writes the code, opens the PR</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
           <tr><td class="agc">code_reviewer<small>gates every merge</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
           <tr><td class="agc">pr_fix_agent<small>fixes review findings</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
           <tr><td class="agc">pr_arbiter<small>final merge / hold decision</small></td><td style="text-align:right"><span class="mbadge">claude-opus-4-8</span></td></tr>
-          <tr><td class="agc">prod_tester<small>smoke &amp; health checks in prod</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
-          <tr><td class="agc">devops_agent<small>diagnoses &amp; fixes deploy failures</small></td><td style="text-align:right"><span class="mbadge">claude-sonnet-5</span></td></tr>
+          <tr><td class="agc">prod_tester<small>smoke &amp; health checks in prod</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
+          <tr><td class="agc">devops_agent<small>diagnoses &amp; fixes deploy failures</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
           <tr><td class="agc">rollback_agent<small>restores previous commit</small></td><td style="text-align:right"><span class="mbadge local">claude-haiku-4-5</span></td></tr>
         </tbody>
       </table>
-      <div class="note">Real assignments from the registry: <span class="mono">Haiku</span> for mechanical steps, <span class="mono">Opus</span> for high-stakes decisions, <span class="mono">Sonnet</span> as the default. Eight further agents (security, UX, and a CTO-led tech-excellence panel) round out the crew.</div>
+      <div class="note">The shipped defaults: <span class="mono">Haiku</span> for mechanical steps, <span class="mono">Opus</span> where a call is final, <span class="mono">Sonnet</span> where judgement is worth paying for. Each is editable at runtime from the admin console, so a running system may differ. Nine further agents (security, UX, and a CTO-led tech-excellence panel) round out the crew.</div>
     </div>
   </div>
 
