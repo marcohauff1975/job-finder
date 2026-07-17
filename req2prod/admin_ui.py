@@ -1114,7 +1114,9 @@ def _load_lessons(agent_key: str) -> str | None:
     return text or None
 
 
-def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> None:
+def _render_agent_model_table(
+    agent_keys: list[str], widget_key_prefix: str, show_subscription: bool = True
+) -> None:
     """Renders one editable Agent/API model/Subscription model/Why table
     for the given agent_keys (see AGENT_DISPLAY_NAMES in
     req2prod/model_registry.py) on the admin "AI Models" tab, with its own
@@ -1133,33 +1135,38 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         sub_recommended_id, sub_rationale = RECOMMENDATIONS[agent_key]["subscription"]
         api_label = MODEL_DISPLAY_NAMES[current_models[agent_key]["api"]]
         sub_label = MODEL_DISPLAY_NAMES[current_models[agent_key]["subscription"]]
-        app_only = agent_key in APP_ONLY_AGENT_KEYS
-        rows.append(
-            {
-                # The dagger marks an agent whose Subscription column can't
-                # take effect in production - explained in the caption below
-                # the table. Without it the column reads as a live choice for
-                # every row, and for these it silently isn't.
-                "Agent": f"{AGENT_DISPLAY_NAMES[agent_key]} †" if app_only else AGENT_DISPLAY_NAMES[agent_key],
-                "API model": api_label,
-                "Recommended (API)": MODEL_DISPLAY_NAMES[api_recommended_id],
-                "Subscription model": sub_label,
-                "Recommended (Subscription)": MODEL_DISPLAY_NAMES[sub_recommended_id],
-                "Why": f"API: {api_rationale}\n\nSubscription: {sub_rationale}",
-            }
+        row = {
+            "Agent": AGENT_DISPLAY_NAMES[agent_key],
+            "API model": api_label,
+            "Recommended (API)": MODEL_DISPLAY_NAMES[api_recommended_id],
+        }
+        if show_subscription:
+            row["Subscription model"] = sub_label
+            row["Recommended (Subscription)"] = MODEL_DISPLAY_NAMES[sub_recommended_id]
+        # The subscription rationale is dropped with the column rather than left
+        # in "Why": explaining a choice that isn't offered only raises the
+        # question of where to make it.
+        row["Why"] = (
+            f"API: {api_rationale}\n\nSubscription: {sub_rationale}"
+            if show_subscription
+            else f"API: {api_rationale}"
+        )
+        rows.append(row)
+
+    columns = {
+        "Why": st.column_config.TextColumn(width="large"),
+        "API model": st.column_config.SelectboxColumn(
+            options=list(MODEL_DISPLAY_NAMES.values()), required=True
+        ),
+    }
+    if show_subscription:
+        columns["Subscription model"] = st.column_config.SelectboxColumn(
+            options=list(MODEL_DISPLAY_NAMES.values()), required=True
         )
 
     edited_rows = st.data_editor(
         rows,
-        column_config={
-            "Why": st.column_config.TextColumn(width="large"),
-            "API model": st.column_config.SelectboxColumn(
-                options=list(MODEL_DISPLAY_NAMES.values()), required=True
-            ),
-            "Subscription model": st.column_config.SelectboxColumn(
-                options=list(MODEL_DISPLAY_NAMES.values()), required=True
-            ),
-        },
+        column_config=columns,
         disabled=["Agent", "Recommended (API)", "Recommended (Subscription)", "Why"],
         use_container_width=True,
         hide_index=True,
@@ -1174,21 +1181,14 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
         key=f"{widget_key_prefix}_editor",
     )
 
-    # Only when this group actually contains one, so the other table doesn't
-    # carry a footnote explaining a symbol it never shows.
-    if any(key in APP_ONLY_AGENT_KEYS for key in agent_keys):
+    # Local Tester and UX Reviewer are in this table but nothing calls
+    # test_locally() or review_ux() yet, so neither of their columns has any
+    # effect. Said here rather than left for someone to discover by changing a
+    # model and watching nothing happen.
+    if any(key in ("local_tester", "ux_reviewer") for key in agent_keys):
         st.caption(
-            "† Runs only inside this Streamlit app, which in production is the "
-            "Lightsail box - and that box has no Claude subscription login. "
-            "The subscription backend is not a remote call: it shells out to "
-            "`claude -p` on whatever machine the code is running on. So for "
-            "these agents the **Subscription model** above never applies in "
-            "production, and the API model is what actually runs. It does take "
-            "effect if you run this app locally on a Mac that is logged in. "
-            "Most other agents here are called from GitHub Actions, where the "
-            "subscription column is real - except Local Tester and UX "
-            "Reviewer, which aren't wired up to run from anywhere yet, so "
-            "neither of their model columns currently has any effect."
+            "Local Tester and UX Reviewer aren't wired up to run from anywhere "
+            "yet, so neither of their model columns currently has any effect."
         )
 
     if st.button("Save model changes", key=f"{widget_key_prefix}_save"):
@@ -1198,10 +1198,15 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
             if new_api_id != current_models[agent_key]["api"]:
                 set_agent_model(agent_key, new_api_id, "api")
                 changed += 1
-            new_sub_id = display_to_model_id[edited["Subscription model"]]
-            if new_sub_id != current_models[agent_key]["subscription"]:
-                set_agent_model(agent_key, new_sub_id, "subscription")
-                changed += 1
+            # Absent for the app-run agents: the column isn't rendered, so
+            # there is nothing to read and nothing to write. Their stored
+            # subscription value is left exactly as it is rather than being
+            # cleared - it is still correct for running this app locally.
+            if show_subscription:
+                new_sub_id = display_to_model_id[edited["Subscription model"]]
+                if new_sub_id != current_models[agent_key]["subscription"]:
+                    set_agent_model(agent_key, new_sub_id, "subscription")
+                    changed += 1
         if changed:
             st.success(f"Updated {changed} model assignment(s) - takes effect immediately, no restart needed.")
             st.rerun()
@@ -1281,13 +1286,37 @@ def render_ai_models_tab() -> None:
                 st.session_state["agent_backend_toggle"] = is_subscription
                 st.rerun()
 
-    app_agent_keys = [
-        key for key in AGENT_DISPLAY_NAMES if key not in TECH_EXCELLENCE_AGENT_KEYS
+    # Split by the machine that runs them, because that is what decides whether
+    # a subscription model is even reachable - and the old single table hid it
+    # twice over. It offered a Subscription dropdown for agents that can never
+    # use one, and it was captioned "Called by this app itself", which is untrue
+    # of code_reviewer and every other agent GitHub Actions invokes.
+    ci_agent_keys = [
+        key
+        for key in AGENT_DISPLAY_NAMES
+        if key not in TECH_EXCELLENCE_AGENT_KEYS and key not in APP_ONLY_AGENT_KEYS
     ]
 
-    st.markdown("#### Req2Prod pipeline agents")
-    st.caption("Called by this app itself, as part of its own Req2Prod pipeline.")
-    _render_agent_model_table(app_agent_keys, "app_agents")
+    st.markdown("#### Run by this app, on the server")
+    st.caption(
+        "Called in-process by this Streamlit app (challenge_requirement / "
+        "build_feature). In production that is the Lightsail box, which has no "
+        "Claude login - so these always run on the API, and there is no "
+        "subscription model to choose. `claude -p` is a subprocess, not a "
+        "remote call: it can only use a login on the machine it runs on."
+    )
+    _render_agent_model_table(list(APP_ONLY_AGENT_KEYS), "app_agents", show_subscription=False)
+
+    st.divider()
+
+    st.markdown("#### Run by GitHub Actions")
+    st.caption(
+        "Invoked from the pipeline's runners, not by this app. These are the "
+        "agents the subscription toggle above actually affects: on "
+        "`subscription` the job routes to the self-hosted runner (Marco's Mac) "
+        "and uses the login there; on `api` it runs on a GitHub-hosted VM."
+    )
+    _render_agent_model_table(ci_agent_keys, "ci_agents")
 
     st.divider()
 
