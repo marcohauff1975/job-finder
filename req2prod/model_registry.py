@@ -44,6 +44,35 @@ TECH_EXCELLENCE_AGENT_KEYS = [
     "security_engineer",
 ]
 
+# Agents that only ever run inside the Streamlit process: req2prod/admin_ui.py
+# calls challenge_requirement() (product_manager, software_architect) and
+# build_feature() (software_engineer), and nothing else calls them - no
+# workflow invokes either, and the app never dispatches one.
+#
+# That makes their "subscription" assignment unreachable in production, and it
+# is worth stating rather than leaving as a column people can set. The
+# subscription backend is not a remote call: run_via_subscription() shells out
+# to `claude -p` in the same process, so it runs on whatever machine that
+# process is on. For these three in production that is the Lightsail box, which
+# has no Claude login - see req2prod_agent_backend_mode.py: "Production
+# Streamlit never has a subscription login available, so it always runs on the
+# API path regardless of what this toggle is set to."
+#
+# Most other agents are reached from a CI runner (code_review_runner,
+# ai_prod_flow_runner, devops_agent_runner, retrospective_runner) or from a
+# manual run (tech_excellence_runner), on machines where a subscription login
+# can exist - so their subscription column is real. The exceptions are
+# local_tester and ux_reviewer: per Req2Prod.py's own docstring they are "not
+# yet wired up" - nothing in the codebase calls test_locally(),
+# test_performance(), or review_ux() - so neither their API nor their
+# subscription column currently has any effect; both are inert until
+# something drives them.
+#
+# These three do still honour AGENT_BACKEND in code, and their subscription
+# models are used when the app is run locally on a Mac that is logged in. The
+# claim here is about production, not about the code path existing.
+APP_ONLY_AGENT_KEYS = ("product_manager", "software_architect", "software_engineer")
+
 AGENT_DISPLAY_NAMES = {
     "code_reviewer": "Code Reviewer",
     "local_tester": "Local Tester",
