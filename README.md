@@ -6,6 +6,11 @@ Job Finder helps a user search live job postings, research the hiring company, a
 
 ![Req2Prod Pipeline](https://github.com/marcohauff1975/job-finder/actions/workflows/req2prod-pipeline.yml/badge.svg)
 
+> **[req2prod.nl](https://req2prod.nl)** explains the pipeline visually — [how a
+> requirement becomes a deployed change](https://req2prod.nl/details.html), and a
+> [recorded end-to-end run](https://req2prod.nl/demo.html) of the agents shipping a
+> real feature to the app in this repo.
+
 ---
 
 ## What it does
@@ -17,15 +22,15 @@ Job Finder helps a user search live job postings, research the hiring company, a
 
 ## The part most projects don't have: an AI-run Req2Prod
 
-Job Finder's own development pipeline is staffed by 15 named CrewAI agents across two systems — not a single "review my code" prompt, but specialists with distinct roles, tools, and model tiers matched to how much judgment and blast radius each one carries:
+Job Finder's own development pipeline is staffed by 18 named CrewAI agents across two systems — not a single "review my code" prompt, but specialists with distinct roles, tools, and model tiers matched to how much judgment and blast radius each one carries:
 
 | Stage | Agent(s) | What it actually does |
 |---|---|---|
 | Requirements | `product_manager`, `software_architect` | Interactively challenge and refine a feature idea before a line of code is written; sessions are persisted so a conversation can be resumed later |
 | Build | `software_engineer` | Implements the feature, opens a real pull request — never pushes to `main` directly |
 | Code review | `code_reviewer` | Reviews every PR as a genuinely separate GitHub identity, capable of approving or requesting changes on its own review |
-| Local/perf testing | `local_tester` | Boots the app, drives the actual changed flow in a browser, measures against a performance baseline |
-| UX review | `ux_reviewer` | Checks the rendered UI against this app's own written UX guidelines, not generic taste |
+| Local/perf testing | `local_tester` | **Defined, not yet wired up** — the agent, its tools and its prompts exist, but nothing calls it, so it does not run on a PR today |
+| UX review | `ux_reviewer` | **Defined, not yet wired up** — same: written and configured, but not yet invoked from the pipeline |
 | Deploy & verify | `prod_tester`, `rollback_agent` | Confirms no active user session before restarting, smoke-tests production, and automatically rolls back on failure |
 | Incident response | `devops_agent` | Diagnoses a failed deploy from real CI logs, ships the smallest fix, and re-triggers the pipeline — capped at one automatic attempt before flagging a human |
 | Readiness & security audit | `cto`, `aws_lead_engineer`, `python_lead_engineer`, `data_engineer`, `ai_engineer`, `security_engineer` | The **Technology Excellence panel** — six specialist personas that audit the real, live state of this project (not just the code) before anything ships publicly |
@@ -77,6 +82,28 @@ cp .env.example .env   # add your API keys
 
 ## Run
 
+Two Streamlit apps, from one checkout. They are separate processes on purpose:
+watching a deploy in the Req2Prod console used to restart the console doing the
+watching, because both were one app behind `?admin=1`.
+
 ```bash
-streamlit run streamlit_app.py
+streamlit run streamlit_app.py                        # Job Finder, the product
 ```
+
+```bash
+streamlit run req2prod_app.py --server.port 8502      # Req2Prod, the console that builds it
+```
+
+Req2Prod is the half worth looking at: type a feature request, watch the agents
+challenge it, and follow the pull request through review to deploy. In
+production these run as `jobfinder.service` and `req2prod.service`, and a deploy
+restarts only the one whose code actually changed (`req2prod/deploy_targets.py`).
+
+### A note on model spend
+
+`AGENT_BACKEND` decides how the agents call Claude: `api` (default) bills an
+Anthropic API key; `subscription` shells out to `claude -p` and uses the Claude
+login **on the machine running the code**. It is not a remote call — a server
+with no `claude` login can only ever use the API, whatever the setting says. On
+`subscription`, CI routes its jobs to a self-hosted runner so they run on a
+logged-in machine.
