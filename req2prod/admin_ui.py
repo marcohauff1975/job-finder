@@ -103,28 +103,67 @@ _DEMO_LOGO_SVG = (
     '</rect></svg></div>'
 )
 
+# The anchor the demo instruction tells the engineer to place the logo after.
+# Deliberately one literal, quoted into the instruction below AND asserted
+# against the real streamlit_app.py by tests/test_demo_logo_instructions.py.
+# The previous instruction navigated by "the admin block that ends at the
+# st.stop() around line 253" - which stopped existing when the admin console
+# moved to req2prod_app.py, six hours before the demo run that broke. Nothing
+# told the instruction its landmark was gone, so the engineer improvised: across
+# eight runs the logo landed at lines 277, 267, 412, 322, 411, 322, 323 and 320.
+# A landmark referenced from prose is a second literal that agrees with the code
+# right up until it doesn't (see req2prod/backend.py's TOOL_CLI_COMMAND for the
+# same failure). The test is what makes this one different.
+DEMO_LOGO_ANCHOR = "if not auth.render_login_or_register():"
+
 DEMO_ADD_LOGO_REQUIREMENT = (
-    "Add the req2prod logo to the top-right corner of the main public Job Finder "
-    "landing page - the page rendered in streamlit_app.py after the admin block "
-    "that ends at the `st.stop()` around line 253, NOT the admin tabs.\n\n"
-    "Inject it once, near the top of that main-page render, via "
-    "`st.markdown(..., unsafe_allow_html=True)`. Use this exact self-contained "
-    "inline SVG (no external files, fonts, or network requests) - it is already "
-    "wrapped in a fixed-position container pinned to the top-right corner that "
-    "overlays the page without disturbing layout:\n\n"
+    "Add the req2prod logo to the top-right corner of the Job Finder landing "
+    "page, which is rendered by `streamlit_app.py`.\n\n"
+    "**Where it goes.** Put it at module level (NOT nested inside any `if`, "
+    "`with`, or function) immediately after the authentication gate, which is "
+    "this block near the top of `streamlit_app.py`:\n\n"
+    "```python\n"
+    "auth = AuthManager()\n"
+    f"{DEMO_LOGO_ANCHOR}\n"
+    "    st.stop()\n"
+    "```\n\n"
+    "Emit it once, via `st.markdown(..., unsafe_allow_html=True)`, using this "
+    "exact self-contained inline SVG (no external files, fonts, or network "
+    "requests) - it is already wrapped in a fixed-position container pinned to "
+    "the top-right corner that overlays the page without disturbing layout:\n\n"
     "```html\n" + _DEMO_LOGO_SVG + "\n```\n\n"
-    "Keep the container's `id=\"req2prod-demo-logo\"` exactly as given so it can be "
-    "removed cleanly later. Do not add the logo to any admin page - only the main "
-    "public landing page."
+    "**It must be visible to signed-in users.** Do NOT wrap it in a condition, "
+    "and in particular do NOT gate it on `st.session_state.get"
+    "(\"authentication_status\")`. Gating it that way is a real bug that has "
+    "already shipped once: on a fresh page load session_state is empty, so the "
+    "logo renders, then the auth cookie resolves and triggers `st.rerun()`, and "
+    "on that second run the condition is False and Streamlit removes the "
+    "element. The logo flashes for about a second on every page load and then "
+    "disappears for every logged-in user.\n\n"
+    "**\"Landing page\" means the Job Finder product's own front page** "
+    "(`streamlit_app.py`) as opposed to the separate admin console "
+    "(`req2prod_app.py`, a different Streamlit process). It does NOT mean "
+    "\"the page shown to logged-out visitors\". Do not add the logo to the "
+    "admin console.\n\n"
+    "Keep the container's `id=\"req2prod-demo-logo\"` exactly as given, so the "
+    "matching removal request can delete it cleanly."
 )
 
 DEMO_REMOVE_LOGO_REQUIREMENT = (
-    "Remove the req2prod demo logo from the main public Job Finder landing page. "
-    "Delete the fixed-position container with `id=\"req2prod-demo-logo\"` (and its "
-    "inline SVG) that was previously injected near the top of the main-page render "
-    "in streamlit_app.py, along with the `st.markdown(...)` call that emits it. "
-    "Leave the rest of the page unchanged. After this change the main landing page "
-    "should render with no req2prod logo in the corner."
+    "Remove the req2prod demo logo from the Job Finder landing page, which is "
+    "rendered by `streamlit_app.py`.\n\n"
+    "Delete the fixed-position container with `id=\"req2prod-demo-logo\"` and its "
+    "inline SVG, together with the whole `st.markdown(..., unsafe_allow_html=True)` "
+    "call that emits it and any comment block that belongs to it. It sits at "
+    "module level just after the authentication gate.\n\n"
+    "This is the exact inverse of the matching \"add the logo\" request: after it, "
+    "`streamlit_app.py` should contain no occurrence of the string "
+    "`req2prod-demo-logo` at all. Change nothing else - the authentication gate "
+    "above it must stay exactly as it is. Do not touch the admin console "
+    "(`req2prod_app.py`); the logo is never added there in the first place.\n\n"
+    "If the logo is not present in `streamlit_app.py`, say so and make no code "
+    "change rather than inventing one - the demo is run repeatedly, so arriving "
+    "to find nothing to remove is an ordinary outcome, not an error."
 )
 
 
