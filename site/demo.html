@@ -111,7 +111,7 @@
          because putting it there is the entire job the demo hands to Req2Prod. The
          dashed target marks where it lands, so the diagram states the request
          rather than the result. -->
-    <svg viewBox="0 62 1000 332" xmlns="http://www.w3.org/2000/svg" role="img"
+    <svg viewBox="0 42 1000 352" xmlns="http://www.w3.org/2000/svg" role="img"
          aria-label="The req2prod logo on the left, an arrow pointing to the empty top-right corner of the Job Finder homepage on the right, where the logo will be added.">
       <defs>
         <linearGradient id="r2p-c1" x1="8" y1="26" x2="30" y2="64" gradientUnits="userSpaceOnUse">
@@ -139,12 +139,6 @@
           <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;.5;.5;1;1" dur="1.1s" repeatCount="indefinite"/>
         </rect>
       </g>
-
-      <!-- ---------- the ask ---------- -->
-      <path d="M326 168 C 430 96, 520 84, 664 104" stroke="#818cf8" stroke-width="2.5" fill="none"
-            stroke-dasharray="7 5" marker-end="url(#arw)"/>
-      <text x="404" y="82" font-family="'Source Sans',sans-serif" font-size="13" font-weight="700"
-            fill="#a9b0ff">add it to the top-right corner</text>
 
       <!-- ---------- right: the Job Finder homepage, before ---------- -->
       <rect x="556" y="96" width="420" height="286" rx="12" fill="#12121c" stroke="rgba(241,245,249,.14)"/>
@@ -187,6 +181,18 @@
 
       <text x="766" y="374" font-family="'Source Sans',sans-serif" font-size="8.5" font-style="italic"
             fill="#6b7180" text-anchor="middle">the homepage today &mdash; no logo yet</text>
+
+      <!-- ---------- the ask ----------
+           Drawn LAST on purpose. SVG has no z-index: paint order is document
+           order, so this sat behind the homepage mock when it was declared
+           above it. It has to be the last thing in the file to stay on top.
+           The curve arcs over the window rather than through it, and lands on
+           the dashed target, so the arrow states where the logo goes instead of
+           disappearing behind the picture. -->
+      <path d="M324 180 C 560 70, 800 58, 874 124" stroke="#818cf8" stroke-width="2.5" fill="none"
+            stroke-dasharray="7 5" marker-end="url(#arw)"/>
+      <text x="600" y="58" font-family="'Source Sans',sans-serif" font-size="13" font-weight="700"
+            fill="#a9b0ff" text-anchor="middle">add it to the top-right corner</text>
     </svg>
   </div>
 
