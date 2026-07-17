@@ -1146,10 +1146,15 @@ def _render_agent_model_table(
         # The subscription rationale is dropped with the column rather than left
         # in "Why": explaining a choice that isn't offered only raises the
         # question of where to make it.
+        #
+        # And with it the "API:" prefix, which only ever existed to tell the two
+        # rationales apart. With one model there is nothing to tell it apart
+        # from, so the label prefixes every row with a word that distinguishes
+        # nothing - it just costs a line of width in the widest column.
         row["Why"] = (
             f"API: {api_rationale}\n\nSubscription: {sub_rationale}"
             if show_subscription
-            else f"API: {api_rationale}"
+            else api_rationale
         )
         rows.append(row)
 

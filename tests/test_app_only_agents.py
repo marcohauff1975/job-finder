@@ -130,6 +130,21 @@ class TestTheTableOffersNoChoiceItCannotHonour:
 
         assert all("Subscription:" not in row["Why"] for row in out["rows"])
 
+    def test_the_why_text_drops_the_api_prefix_when_there_is_one_model(self, render):
+        """"API:" only ever distinguished the two rationales. With one model it
+        labels every row with a word that distinguishes nothing."""
+        out = render(list(APP_ONLY_AGENT_KEYS), show_subscription=False)
+
+        assert all(not row["Why"].startswith("API:") for row in out["rows"])
+        assert all(row["Why"].strip() for row in out["rows"]), "rationale went missing"
+
+    def test_the_prefixes_stay_where_both_rationales_are_shown(self, render):
+        """They earn their keep there - two blocks of prose need labels."""
+        out = render(["code_reviewer"])
+
+        assert out["rows"][0]["Why"].startswith("API:")
+        assert "Subscription:" in out["rows"][0]["Why"]
+
     def test_saving_never_writes_a_subscription_model_for_them(self, monkeypatch):
         """The real guarantee. Reading a column that isn't rendered would raise;
         writing one would persist a value the UI never offered."""
