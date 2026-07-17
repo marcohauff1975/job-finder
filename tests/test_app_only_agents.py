@@ -81,39 +81,117 @@ class TestTheClaimIsStillTrue:
             assert key not in APP_ONLY_AGENT_KEYS
 
 
-class TestTheTableSaysSo:
-    def test_marked_agents_are_daggered_and_others_are_not(self, monkeypatch):
-        captured = {"rows": None, "captions": []}
-        monkeypatch.setattr(ui.st, "data_editor", lambda rows, **kw: captured.update(rows=rows) or rows)
-        monkeypatch.setattr(ui.st, "caption", lambda text, **kw: captured["captions"].append(text))
-        monkeypatch.setattr(ui.st, "button", lambda *a, **kw: False)
+class TestTheTableOffersNoChoiceItCannotHonour:
+    """A dagger and a footnote were the first attempt. They were not enough:
+    the Subscription dropdown was still live, so the page still offered a
+    setting that could never take effect, and a footnote does not stop someone
+    changing it and expecting something. The column is now absent for these
+    agents entirely."""
 
-        ui._render_agent_model_table(["product_manager", "code_reviewer"], "test")
+    @pytest.fixture
+    def render(self, monkeypatch):
+        def _run(agent_keys, show_subscription=True):
+            captured = {"rows": None, "columns": None, "disabled": None}
 
-        by_agent = {r["Agent"]: r for r in captured["rows"]}
-        assert any(name.endswith(" †") for name in by_agent), "app-only agent not marked"
-        assert not any(
-            name.endswith(" †") and "reviewer" in name.lower() for name in by_agent
-        ), "a CI agent was marked as app-only"
+            def fake_editor(rows, column_config=None, disabled=None, **kw):
+                captured["rows"] = rows
+                captured["columns"] = column_config
+                captured["disabled"] = disabled
+                return rows
 
-    def test_the_footnote_explains_the_dagger(self, monkeypatch):
-        captions = []
-        monkeypatch.setattr(ui.st, "data_editor", lambda rows, **kw: rows)
-        monkeypatch.setattr(ui.st, "caption", lambda text, **kw: captions.append(text))
-        monkeypatch.setattr(ui.st, "button", lambda *a, **kw: False)
+            monkeypatch.setattr(ui.st, "data_editor", fake_editor)
+            monkeypatch.setattr(ui.st, "caption", lambda *a, **kw: None)
+            monkeypatch.setattr(ui.st, "button", lambda *a, **kw: False)
+            ui._render_agent_model_table(agent_keys, "t", show_subscription=show_subscription)
+            return captured
 
-        ui._render_agent_model_table(list(APP_ONLY_AGENT_KEYS), "test")
+        return _run
 
-        assert any("†" in c and "never applies in production" in c for c in captions)
+    def test_app_only_agents_get_no_subscription_column(self, render):
+        out = render(list(APP_ONLY_AGENT_KEYS), show_subscription=False)
 
-    def test_no_footnote_when_the_group_has_no_marked_agents(self, monkeypatch):
-        """The Technology Excellence table shows no dagger, so it must not
-        carry a footnote explaining one."""
-        captions = []
-        monkeypatch.setattr(ui.st, "data_editor", lambda rows, **kw: rows)
-        monkeypatch.setattr(ui.st, "caption", lambda text, **kw: captions.append(text))
-        monkeypatch.setattr(ui.st, "button", lambda *a, **kw: False)
+        for row in out["rows"]:
+            assert "Subscription model" not in row
+            assert "Recommended (Subscription)" not in row
+        assert "Subscription model" not in out["columns"]
 
-        ui._render_agent_model_table(["code_reviewer", "pr_arbiter"], "test")
+    def test_ci_agents_keep_a_real_subscription_column(self, render):
+        """The toggle genuinely drives these - the column must stay editable."""
+        out = render(["code_reviewer", "pr_arbiter"])
 
-        assert not any("†" in c for c in captions)
+        assert all("Subscription model" in row for row in out["rows"])
+        assert "Subscription model" in out["columns"]
+        assert "Subscription model" not in (out["disabled"] or [])
+
+    def test_the_why_text_drops_the_subscription_rationale_too(self, render):
+        """Explaining a choice that isn't offered only raises the question of
+        where to make it."""
+        out = render(list(APP_ONLY_AGENT_KEYS), show_subscription=False)
+
+        assert all("Subscription:" not in row["Why"] for row in out["rows"])
+
+    def test_saving_never_writes_a_subscription_model_for_them(self, monkeypatch):
+        """The real guarantee. Reading a column that isn't rendered would raise;
+        writing one would persist a value the UI never offered."""
+        writes = []
+        monkeypatch.setattr(ui, "set_agent_model", lambda k, m, tier: writes.append(tier))
+        monkeypatch.setattr(ui.st, "data_editor", lambda rows, **kw: [
+            dict(r, **{"API model": "Opus 4.8 (strongest, slowest/priciest)"}) for r in rows
+        ])
+        monkeypatch.setattr(ui.st, "caption", lambda *a, **kw: None)
+        monkeypatch.setattr(ui.st, "button", lambda *a, **kw: True)
+        monkeypatch.setattr(ui.st, "success", lambda *a, **kw: None)
+        monkeypatch.setattr(ui.st, "rerun", lambda: None)
+        monkeypatch.setattr(ui.st, "info", lambda *a, **kw: None)
+
+        ui._render_agent_model_table(
+            list(APP_ONLY_AGENT_KEYS), "t", show_subscription=False
+        )
+
+        assert writes, "the API change should still save"
+        assert "subscription" not in writes
+
+
+class TestTheTabActuallyPassesTheFlag:
+    """The gap the first version of these tests left. They proved
+    _render_agent_model_table *can* hide the column, and nothing proved
+    render_ai_models_tab asks it to - so deleting `show_subscription=False` at
+    the call site put the dropdown straight back with every test still green.
+    That is the exact regression worth catching."""
+
+    @pytest.fixture
+    def tab_calls(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            ui,
+            "_render_agent_model_table",
+            lambda keys, prefix, show_subscription=True: calls.append(
+                {"keys": tuple(keys), "prefix": prefix, "subscription": show_subscription}
+            ),
+        )
+        for name in ("markdown", "caption", "divider", "subheader", "write", "link_button"):
+            monkeypatch.setattr(ui.st, name, lambda *a, **kw: None, raising=False)
+        monkeypatch.setattr(ui, "get_agent_backend", lambda: "subscription", raising=False)
+        monkeypatch.setattr(ui.st, "toggle", lambda *a, **kw: False, raising=False)
+        ui.render_ai_models_tab()
+        return calls
+
+    def test_the_app_group_is_rendered_without_a_subscription_column(self, tab_calls):
+        app = [c for c in tab_calls if set(c["keys"]) == set(APP_ONLY_AGENT_KEYS)]
+        assert app, "no table rendered for the app-run agents"
+        assert app[0]["subscription"] is False, (
+            "render_ai_models_tab stopped passing show_subscription=False - the "
+            "Subscription dropdown is back for agents that can never use it."
+        )
+
+    def test_the_ci_group_keeps_its_subscription_column(self, tab_calls):
+        ci = [c for c in tab_calls if "code_reviewer" in c["keys"]]
+        assert ci, "no table rendered for the CI agents"
+        assert ci[0]["subscription"] is True
+
+    def test_no_app_only_agent_leaks_into_the_ci_group(self, tab_calls):
+        for call in tab_calls:
+            if call["subscription"]:
+                assert not (set(call["keys"]) & set(APP_ONLY_AGENT_KEYS)), (
+                    "an app-run agent is in a table that offers a subscription model"
+                )
