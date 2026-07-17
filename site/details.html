@@ -104,6 +104,17 @@
   .frame-rt{fill:rgba(129,140,248,.03); stroke:var(--accent); stroke-opacity:.3; stroke-width:1.5; stroke-dasharray:6 4}
   .frame-l{fill:#c7c9ff; font-size:10px; font-weight:700}
 
+  /* A boundary that means the opposite of .frame-rt. Indigo short-dash is
+     already spoken for: it marks something ephemeral (the throwaway clone, the
+     temporary GitHub runner). Long green dashes mark standing infrastructure -
+     the box that is still there when the run ends. Different colour and a
+     different dash length, so the two frames can never be read as the same
+     kind of thing. */
+  .frame-aws{fill:rgba(74,222,128,.025); stroke:#4ade80; stroke-opacity:.34; stroke-width:1.5; stroke-dasharray:11 5}
+  .frame-aws-l{fill:#86efac; font-size:10px; font-weight:700}
+  .frame-gh-l{fill:#c7c9ff; font-size:10px; font-weight:700}
+  .swatch.dash-aws{background:none !important; height:0; border-top:2px dashed #4ade80}
+
   .vstrip{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; margin-top:26px}
   .vcard{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 15px}
   .vcard .vt{font-size:13px; font-weight:700; margin-bottom:4px; color:var(--text)}
@@ -205,11 +216,23 @@
     <div class="panel diagram-wrap">
       <svg class="diagram" viewBox="0 0 690 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d1t d1d">
         <title id="d1t">The requirements challenge sequence, from a typed request to an open pull request</title>
-        <desc id="d1d">You type a feature request into the Streamlit admin page. challenge_requirement sends the whole conversation to product_manager and software_architect. If either has open questions you answer them and the loop runs again. Once both mark it ready for development, a button appears that calls build_feature, which runs software_engineer inside a throwaway clone of the repo and opens a pull request against main.</desc>
+        <desc id="d1d">You type a feature request into the Streamlit admin page. challenge_requirement sends the whole conversation to product_manager and software_architect. If either has open questions you answer them and the loop runs again. Once both mark it ready for development, a button appears that calls build_feature, which runs software_engineer inside a throwaway clone of the repo and opens a pull request against main. Everything up to that pull request sits inside a green dashed boundary marking a single AWS Lightsail box: the admin page, both agents and the build all run in one process on one machine. Only the pull request lies outside it, on GitHub.</desc>
         <defs>
           <marker id="m1f" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#818cf8"></path></marker>
           <marker id="m1c" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#22d3ee"></path></marker>
         </defs>
+
+        <!-- The whole sequence above the pull request happens on one Lightsail
+             box. The three columns are a reading aid, not three machines:
+             STREAMLIT APP and CREWAI AGENTS are the same Python process, and the
+             page YOU type into is served from that same box, so the typing is
+             inside the boundary too. build_feature() is called from
+             req2prod/admin_ui.py and by nothing else - no workflow invokes it -
+             and the throwaway clone is a temp directory on this box (see
+             req2prod/tools/build_workspace.py), not a runner. GitHub owns
+             nothing here until the pull request is opened. -->
+        <rect class="frame-aws" x="2" y="24" width="686" height="600" rx="14"></rect>
+        <text class="frame-aws-l" x="676" y="42" text-anchor="end">AWS Lightsail &middot; one box, one process, always on</text>
 
         <rect class="frame-rt" x="455" y="512" width="228" height="95" rx="12"></rect>
         <text class="frame-l" x="466" y="530">throwaway clone</text>
@@ -270,14 +293,20 @@
 
         <text class="l-clar" x="300" y="333" text-anchor="middle">questions remain &mdash; the only human step</text>
         <text class="l-flow" x="672" y="440" text-anchor="end">both ready</text>
+
+        <!-- Outside the frame on purpose: this is the first thing that leaves the
+             box. It is pushed from Lightsail; GitHub only receives it. -->
+        <text class="frame-gh-l" x="508" y="655">GitHub &middot; receives the push</text>
+        <text class="l-flow" x="508" y="669">the pipeline starts here</text>
       </svg>
       <div class="legend">
         <div class="k"><span class="swatch" style="background:#818cf8"></span> Delivery flow</div>
         <div class="k"><span class="swatch" style="background:#22d3ee"></span> Clarification &mdash; the only human step</div>
         <div class="k"><span class="swatch dash"></span> Throwaway clone, deleted when the build ends</div>
+        <div class="k"><span class="swatch dash-aws"></span> AWS Lightsail &mdash; standing infrastructure, not wiped</div>
       </div>
     </div>
-    <figcaption>The button is gated twice. It only renders when both agents' latest verdicts are ready, and <code>build_feature()</code> re-checks both flags itself before running &mdash; defense in depth, not the primary gate.</figcaption>
+    <figcaption>All of this is one machine. The three columns separate <em>roles</em>, not hardware &mdash; the Streamlit app and the agents are the same Python process, and the page you type into is served from that same box, so even your typing happens inside the boundary. No CI is involved until the pull request is pushed. The button is gated twice: it only renders when both agents' latest verdicts are ready, and <code>build_feature()</code> re-checks both flags itself before running &mdash; defense in depth, not the primary gate.</figcaption>
   </figure>
 
   <p>The loop is the point. Neither agent gives you a plan and stops; they come back with what they still need to know, and the <strong>Push to Software Engineer</strong> button does not exist until both have set <code>ready_for_development</code>. It also disappears the moment anything new is said, so a stale verdict can't be pushed twice.</p>
