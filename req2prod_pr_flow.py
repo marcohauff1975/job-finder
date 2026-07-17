@@ -22,6 +22,8 @@ from html import escape
 import requests
 import streamlit as st
 
+from req2prod_agent_backend_mode import get_agent_backend
+
 GITHUB_REPO = "marcohauff1975/job-finder"
 PIPELINE_WORKFLOW_FILE = "req2prod-pipeline.yml"
 DEVOPS_AGENT_WORKFLOW_FILE = "devops-agent.yml"
@@ -225,6 +227,53 @@ def _deploy_stages(pr: dict, token: str) -> list[dict]:
                 )
 
     return stages
+
+
+@st.cache_data(ttl=15)
+def get_subscription_stall() -> dict | None:
+    """Is the pipeline currently unable to run, because the machine it depends
+    on isn't there? Returns {"runner": name|None, "queued": int} when so, else
+    None.
+
+    AGENT_BACKEND=subscription routes code_review and deploy onto the
+    self-hosted runner, which is Marco's laptop. GitHub cannot push work to it:
+    the runner holds an outbound connection and *asks* for jobs, so a closed
+    laptop means nothing is asking and the job simply sits in the queue. It
+    resumes by itself when the Mac comes back and polls again - GitHub only
+    gives up after 24h.
+
+    Nothing surfaced that. The flow on the Pipeline tab is built from posted PR
+    reviews, so a queued job produces no Code Review box at all: the page shows
+    the pull request and then stops, which reads as finished, or broken, rather
+    than as waiting. That is this function's whole reason to exist - the state
+    is benign and self-healing, and looked like neither.
+
+    Returns None whenever it cannot tell (no token, API unreachable, variable
+    unreadable). A banner claiming the Mac is down because a token is missing
+    would be worse than no banner.
+    """
+    if get_agent_backend() != "subscription":
+        return None
+
+    token = os.getenv("GITHUB_ACTIONS_TOKEN")
+    if not token:
+        return None
+
+    runners, ok = _gh_get("/actions/runners", token)
+    if not ok or not isinstance(runners, dict):
+        return None
+
+    listed = runners.get("runners", [])
+    if any(runner.get("status") == "online" for runner in listed):
+        return None
+
+    # Named from the registration even while offline, so the banner can say
+    # *which* machine rather than "a runner".
+    name = listed[0].get("name") if listed else None
+
+    queued, ok = _gh_get("/actions/runs", token, params={"status": "queued", "per_page": 20})
+    waiting = queued.get("total_count", 0) if ok and isinstance(queued, dict) else 0
+    return {"runner": name, "queued": waiting}
 
 
 @st.cache_data(ttl=15)

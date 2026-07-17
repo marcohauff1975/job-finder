@@ -48,7 +48,7 @@ from req2prod.requirements_sessions import new_session_id, save_session
 from req2prod_agent_backend_mode import get_agent_backend, set_agent_backend
 from req2prod_agent_steps import get_agent_activity
 from req2prod_deploy_mode import get_auto_deploy_mode, set_auto_deploy_mode
-from req2prod_pr_flow import get_latest_pr_flow, render_pr_flow_svg
+from req2prod_pr_flow import get_latest_pr_flow, get_subscription_stall, render_pr_flow_svg
 
 
 # Placeholder text of the requirements st.chat_input - shared by the widget
@@ -912,6 +912,33 @@ def _draw_pr_flow() -> list[dict]:
         pr_info, stages, flow_error = get_latest_pr_flow()
     except Exception:
         pr_info, stages, flow_error = None, [], "error"
+
+    # Above the flow, not inside it: when the review is queued there is no Code
+    # Review box to annotate - the flow just stops after the pull request, and
+    # that silence is exactly what this explains. st.info rather than st.error
+    # because nothing is broken: the job is queued and resumes on its own.
+    try:
+        stall = get_subscription_stall()
+    except Exception:
+        stall = None
+    if stall:
+        machine = stall["runner"] or "the self-hosted runner"
+        waiting = stall["queued"]
+        queued_text = (
+            f" **{waiting} job{'s' if waiting != 1 else ''}** already waiting."
+            if waiting
+            else ""
+        )
+        st.info(
+            f"**Subscription mode is on, and {machine} is offline.**{queued_text} "
+            "Code review and deploy run on that machine, and it asks GitHub for "
+            "work rather than the other way round - so nothing runs until it is "
+            "back. **This resumes automatically when it comes online**; no button "
+            "to press. If it stays offline for 24 hours GitHub gives up on a "
+            "queued job, and it has to be re-run. To keep shipping meanwhile, "
+            "switch the backend to API on the AI Models tab.",
+            icon="💤",
+        )
 
     if flow_error == "no_token":
         st.info("GITHUB_ACTIONS_TOKEN isn't configured - set it in .env to enable this tab.")
