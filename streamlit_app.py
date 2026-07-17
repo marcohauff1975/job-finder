@@ -314,7 +314,6 @@ if not (st.session_state.get("authentication_status") and st.session_state.get("
         unsafe_allow_html=True,
     )
 
-</antml :parameter>
 auth = AuthManager()
 if not auth.render_login_or_register():
     st.stop()
