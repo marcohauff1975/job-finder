@@ -58,10 +58,15 @@ TECH_EXCELLENCE_AGENT_KEYS = [
 # Streamlit never has a subscription login available, so it always runs on the
 # API path regardless of what this toggle is set to."
 #
-# Every other agent is reached from a CI runner (code_review_runner,
+# Most other agents are reached from a CI runner (code_review_runner,
 # ai_prod_flow_runner, devops_agent_runner, retrospective_runner) or from a
 # manual run (tech_excellence_runner), on machines where a subscription login
-# can exist - so their subscription column is real.
+# can exist - so their subscription column is real. The exceptions are
+# local_tester and ux_reviewer: per Req2Prod.py's own docstring they are "not
+# yet wired up" - nothing in the codebase calls test_locally(),
+# test_performance(), or review_ux() - so neither their API nor their
+# subscription column currently has any effect; both are inert until
+# something drives them.
 #
 # These three do still honour AGENT_BACKEND in code, and their subscription
 # models are used when the app is run locally on a Mac that is logged in. The

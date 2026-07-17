@@ -1185,8 +1185,10 @@ def _render_agent_model_table(agent_keys: list[str], widget_key_prefix: str) -> 
             "these agents the **Subscription model** above never applies in "
             "production, and the API model is what actually runs. It does take "
             "effect if you run this app locally on a Mac that is logged in. "
-            "Every other agent here is called from GitHub Actions, where the "
-            "subscription column is real."
+            "Most other agents here are called from GitHub Actions, where the "
+            "subscription column is real - except Local Tester and UX "
+            "Reviewer, which aren't wired up to run from anywhere yet, so "
+            "neither of their model columns currently has any effect."
         )
 
     if st.button("Save model changes", key=f"{widget_key_prefix}_save"):
