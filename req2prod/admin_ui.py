@@ -1311,10 +1311,12 @@ def render_ai_models_tab() -> None:
 
     st.markdown("#### Run by GitHub Actions")
     st.caption(
-        "Invoked from the pipeline's runners, not by this app. These are the "
-        "agents the subscription toggle above actually affects: on "
-        "`subscription` the job routes to the self-hosted runner (Marco's Mac) "
-        "and uses the login there; on `api` it runs on a GitHub-hosted VM."
+        "Invoked from the pipeline's runners, not by this app. For most of "
+        "these, this is what the subscription toggle above actually affects: "
+        "on `subscription` the job routes to the self-hosted runner (Marco's "
+        "Mac) and uses the login there; on `api` it runs on a GitHub-hosted "
+        "VM. Exceptions: Local Tester and UX Reviewer, below - see the "
+        "caption under their row."
     )
     _render_agent_model_table(ci_agent_keys, "ci_agents")
 
